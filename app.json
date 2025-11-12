@@ -1,0 +1,80 @@
+{
+  "expo": {
+    "name": "Calora AI",
+    "slug": "calora-ai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "calora",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.youssef.caloraai",
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app needs access to your camera to scan meals and barcodes.",
+        "NSMicrophoneUsageDescription": "This app needs access to your microphone for camera features.",
+        "NSMotionUsageDescription": "This app needs access to your motion activity to track steps."
+      },
+      "config": {
+        "googleMobileAdsAppId": "ca-app-pub-8833281523608204~8626106265" 
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "supportsRtl": true,
+      "edgeToEdgeEnabled": true,
+      "package": "com.caloraai.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACTIVITY_RECOGNITION",
+        "android.permission.FOREGROUND_SERVICE"
+      ],
+      "config": {
+        "googleMobileAdsAppId": "ca-app-pub-8833281523608204~9203025069" 
+      }
+    },
+    "web": {
+      "favicon": "./assets/icon.png"
+    },
+    "plugins": [
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "kotlinVersion": "1.8.10",
+            "extraGradleProperties": {
+              "org.gradle.jvmargs": "-Xmx4g",
+              "android.jetifier.enabled": "true"
+            }
+          }
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Calora AI to access your camera to scan meals and barcodes.",
+          "microphonePermission": "Allow Calora AI to access your microphone for camera features."
+        }
+      ],
+      "react-native-google-fit",
+      "./plugins/withForceRtl.js"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "c15bd2a0-4703-42bd-9145-d1f2a8d28b4e"
+      }
+    },
+    "owner": "sdsd2323"
+  }
+}

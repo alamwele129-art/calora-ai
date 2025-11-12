@@ -1,0 +1,63 @@
+name: Build Android APK Natively
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. يسحب الكود
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. يجهز Node.js
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      # 3. يجهز Java
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # 4. يثبت المكتبات
+      - name: Install dependencies
+        run: npm install
+
+      # 5. ✅✅✅ الخطوة الجديدة والأساسية لحل المشكلة ✅✅✅
+      # هذه الخطوة تقوم بتحويل إعدادات app.json إلى ملفات أندرويد أصلية
+      - name: Generate native Android files
+        run: npx expo prebuild --platform android --no-install
+      
+      # 6. يرجع ملف التوقيع
+      - name: Decode Keystore
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > ./android/my-release-key.keystore
+
+      # 7. يعطي صلاحية التنفيذ
+      - name: Make gradlew executable
+        working-directory: ./android
+        run: chmod +x ./gradlew
+
+      # 8. يبدأ عملية البناء
+      - name: Build Android Release APK
+        working-directory: ./android
+        run: ./gradlew assembleRelease
+        env:
+          MYAPP_UPLOAD_STORE_FILE: my-release-key.keystore
+          MYAPP_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          MYAPP_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          MYAPP_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      # 9. يرفع الـ APK
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: calora-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
