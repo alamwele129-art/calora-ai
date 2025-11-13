@@ -22,7 +22,7 @@
         "NSMotionUsageDescription": "This app needs access to your motion activity to track steps."
       },
       "config": {
-        "googleMobileAdsAppId": "ca-app-pub-8833281523608204~8626106265" 
+        "googleMobileAdsAppId": "ca-app-pub-8833281523608204~8626106265"
       }
     },
     "android": {
@@ -40,13 +40,14 @@
         "android.permission.FOREGROUND_SERVICE"
       ],
       "config": {
-        "googleMobileAdsAppId": "ca-app-pub-8833281523608204~9203025069" 
+        "googleMobileAdsAppId": "ca-app-pub-8833281523608204~9203025069"
       }
     },
     "web": {
       "favicon": "./assets/icon.png"
     },
     "plugins": [
+      "expo-splash-screen",
       "expo-font",
       [
         "expo-build-properties",

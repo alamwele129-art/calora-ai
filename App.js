@@ -1,20 +1,21 @@
-// App.js - الكود الكامل والنهائي
-
 import 'react-native-url-polyfill/auto';
 import 'react-native-get-random-values';
 import 'react-native-gesture-handler';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, I18nManager, DevSettings } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
-import { supabase } from './supabaseclient'; 
-import * as Linking from 'expo-linking'; 
+import { supabase } from './supabaseclient';
+import * as Linking from 'expo-linking';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// مكتبة expo-splash-screen الأصلية لمنع الشاشة البيضاء
 import * as ExpoSplashScreen from 'expo-splash-screen';
 
 // --- استيراد جميع الشاشات ---
+import SplashScreen from './Splash'; // ✅ 1. استيراد شاشتك المخصصة
 import IndexScreen from './Index';
 import SignInScreen from './signin';
 import SignUpScreen from './signup';
@@ -29,15 +30,16 @@ import ResultsScreen from './results';
 import MainUI from './mainui';
 import SettingsScreen from './setting';
 
+// منع شاشة Expo الأصلية من الإخفاء التلقائي
 ExpoSplashScreen.preventAutoHideAsync();
 
 const Stack = createStackNavigator();
 
 const App = () => {
   const [session, setSession] = useState(null);
-  const [isReady, setIsReady] = useState(false);
   const [isOnboardingComplete, setIsOnboardingComplete] = useState(false);
   const [appLanguage, setAppLanguage] = useState('en');
+  const [appIsReady, setAppIsReady] = useState(false); // ✅ 2. متغير حالة جديد لتتبع جاهزية التطبيق
 
   const handleDeepLink = async (url) => {
     if (!url) return;
@@ -63,22 +65,36 @@ const App = () => {
       try {
         const savedLang = await AsyncStorage.getItem('appLanguage');
         const currentLang = savedLang || 'en';
-        setAppLanguage(currentLang);
-        if (I18nManager.isRTL !== (currentLang === 'ar')) {
-          I18nManager.forceRTL(currentLang === 'ar');
+        const isRTLRequired = currentLang === 'ar';
+
+        if (I18nManager.isRTL !== isRTLRequired) {
+          I18nManager.forceRTL(isRTLRequired);
+          DevSettings.reload();
+          return;
         }
+
+        setAppLanguage(currentLang);
+
         const { data: { session: currentSession } } = await supabase.auth.getSession();
         setSession(currentSession);
+
         if (currentSession?.user) {
           setIsOnboardingComplete(currentSession.user.user_metadata?.onboarding_complete || false);
         }
+
       } catch (e) {
         console.warn('Initialization error:', e);
       } finally {
-        setIsReady(true);
+        // ✅ 3. تعديل منطق انتهاء التحميل
+        // نخفي شاشة expo الأصلية أولاً
+        await ExpoSplashScreen.hideAsync();
+        // ثم ننتظر قليلاً (لتظهر شاشتك المخصصة) قبل عرض التطبيق الرئيسي
+        setTimeout(() => {
+          setAppIsReady(true);
+        }, 2500); // <-- يمكنك التحكم في مدة عرض شاشتك من هنا (2500ms = 2.5 ثانية)
       }
     };
-    
+
     initializeApp();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -92,21 +108,16 @@ const App = () => {
 
     const linkSubscription = Linking.addEventListener('url', (event) => handleDeepLink(event.url));
     Linking.getInitialURL().then(url => handleDeepLink(url));
-    
+
     return () => {
       subscription.unsubscribe();
       linkSubscription.remove();
     };
   }, []);
 
-  const onLayoutRootView = useCallback(async () => {
-    if (isReady) {
-      await ExpoSplashScreen.hideAsync();
-    }
-  }, [isReady]);
-
-  if (!isReady) {
-    return null;
+  // ✅ 4. عرض شاشتك المخصصة طالما التطبيق ليس جاهزاً
+  if (!appIsReady) {
+    return <SplashScreen />;
   }
 
   const getInitialRouteName = () => {
@@ -118,13 +129,13 @@ const App = () => {
 
   return (
     <SafeAreaProvider>
-      <View style={styles.rootContainer} onLayout={onLayoutRootView}>
+      <View style={styles.rootContainer}>
         <NavigationContainer>
-          <Stack.Navigator 
-            initialRouteName={getInitialRouteName()} 
+          <Stack.Navigator
+            initialRouteName={getInitialRouteName()}
             screenOptions={{ headerShown: false }}
           >
-            {/* ✅ تمرير اللغة لجميع الشاشات التي تحتاج للترجمة */}
+            {/* باقي الشاشات كما هي */}
             <Stack.Screen name="Index">
               {(props) => <IndexScreen {...props} appLanguage={appLanguage} />}
             </Stack.Screen>
@@ -159,7 +170,7 @@ const App = () => {
               {(props) => <ResultsScreen {...props} appLanguage={appLanguage} />}
             </Stack.Screen>
             <Stack.Screen name="Settings">
-              {(props) => <SettingsScreen {...props} appLanguage={appLanguage} onThemeChange={async (isDark) => { await AsyncStorage.setItem('isDarkMode', String(isDark)); }} />}
+              {(props) => <SettingsScreen {...props} onThemeChange={async (isDark) => { await AsyncStorage.setItem('isDarkMode', String(isDark)); }} />}
             </Stack.Screen>
             <Stack.Screen name="MainUI">
               {(props) => <MainUI {...props} appLanguage={appLanguage} />}
