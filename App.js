@@ -11,8 +11,10 @@ import { supabase } from './supabaseclient';
 import * as Linking from 'expo-linking';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// --- استيراد جميع الشاشات ---
-import SplashScreen from './Splash'; // شاشتك المخصصة
+// --- استيراد شاشتك المخصصة (هذا صحيح الآن) ---
+import SplashScreen from './Splash'; 
+
+// --- استيراد باقي الشاشات ---
 import IndexScreen from './Index';
 import SignInScreen from './signin';
 import SignUpScreen from './signup';
@@ -33,7 +35,7 @@ const App = () => {
   const [session, setSession] = useState(null);
   const [isOnboardingComplete, setIsOnboardingComplete] = useState(false);
   const [appLanguage, setAppLanguage] = useState('en');
-  const [appIsReady, setAppIsReady] = useState(false); // هذا المتغير سيتحكم في عرض شاشتك المخصصة
+  const [appIsReady, setAppIsReady] = useState(false); // هذا سيتحكم في عرض شاشتك المخصصة
 
   const handleDeepLink = async (url) => {
     if (!url) return;
@@ -82,7 +84,7 @@ const App = () => {
         // بعد انتهاء التحميل، انتظر قليلاً لعرض شاشتك المخصصة ثم اعرض التطبيق
         setTimeout(() => {
           setAppIsReady(true);
-        }, 2500); // <-- مدة عرض شاشتك المخصصة
+        }, 2500); // <-- مدة عرض شاشتك المخصصة من ملف Splash.js
       }
     };
 
@@ -106,7 +108,7 @@ const App = () => {
     };
   }, []);
 
-  // عرض شاشتك المخصصة طالما التطبيق ليس جاهزاً
+  // هذا الكود صحيح: يعرض شاشتك المخصصة طالما التطبيق ليس جاهزاً
   if (!appIsReady) {
     return <SplashScreen />;
   }

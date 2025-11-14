@@ -8,9 +8,6 @@
     "userInterfaceStyle": "light",
     "scheme": "calora",
     "newArchEnabled": true,
-    "splash": {
-      "backgroundColor": "#e6f2e9"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.youssef.caloraai",
