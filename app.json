@@ -9,9 +9,7 @@
     "scheme": "calora",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#e6f2e9"
     },
     "ios": {
       "supportsTablet": true,
@@ -47,7 +45,6 @@
       "favicon": "./assets/icon.png"
     },
     "plugins": [
-      "expo-splash-screen",
       "expo-font",
       [
         "expo-build-properties",
@@ -68,7 +65,12 @@
           "microphonePermission": "Allow Calora AI to access your microphone for camera features."
         }
       ],
-      "react-native-google-fit",
+      [
+        "react-native-google-fit",
+        {
+          "isSwift": true
+        }
+      ],
       "./plugins/withForceRtl.js"
     ],
     "extra": {

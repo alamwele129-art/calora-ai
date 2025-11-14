@@ -11,11 +11,8 @@ import { supabase } from './supabaseclient';
 import * as Linking from 'expo-linking';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// مكتبة expo-splash-screen الأصلية لمنع الشاشة البيضاء
-import * as ExpoSplashScreen from 'expo-splash-screen';
-
 // --- استيراد جميع الشاشات ---
-import SplashScreen from './Splash'; // ✅ 1. استيراد شاشتك المخصصة
+import SplashScreen from './Splash'; // شاشتك المخصصة
 import IndexScreen from './Index';
 import SignInScreen from './signin';
 import SignUpScreen from './signup';
@@ -30,16 +27,13 @@ import ResultsScreen from './results';
 import MainUI from './mainui';
 import SettingsScreen from './setting';
 
-// منع شاشة Expo الأصلية من الإخفاء التلقائي
-ExpoSplashScreen.preventAutoHideAsync();
-
 const Stack = createStackNavigator();
 
 const App = () => {
   const [session, setSession] = useState(null);
   const [isOnboardingComplete, setIsOnboardingComplete] = useState(false);
   const [appLanguage, setAppLanguage] = useState('en');
-  const [appIsReady, setAppIsReady] = useState(false); // ✅ 2. متغير حالة جديد لتتبع جاهزية التطبيق
+  const [appIsReady, setAppIsReady] = useState(false); // هذا المتغير سيتحكم في عرض شاشتك المخصصة
 
   const handleDeepLink = async (url) => {
     if (!url) return;
@@ -85,13 +79,10 @@ const App = () => {
       } catch (e) {
         console.warn('Initialization error:', e);
       } finally {
-        // ✅ 3. تعديل منطق انتهاء التحميل
-        // نخفي شاشة expo الأصلية أولاً
-        await ExpoSplashScreen.hideAsync();
-        // ثم ننتظر قليلاً (لتظهر شاشتك المخصصة) قبل عرض التطبيق الرئيسي
+        // بعد انتهاء التحميل، انتظر قليلاً لعرض شاشتك المخصصة ثم اعرض التطبيق
         setTimeout(() => {
           setAppIsReady(true);
-        }, 2500); // <-- يمكنك التحكم في مدة عرض شاشتك من هنا (2500ms = 2.5 ثانية)
+        }, 2500); // <-- مدة عرض شاشتك المخصصة
       }
     };
 
@@ -115,7 +106,7 @@ const App = () => {
     };
   }, []);
 
-  // ✅ 4. عرض شاشتك المخصصة طالما التطبيق ليس جاهزاً
+  // عرض شاشتك المخصصة طالما التطبيق ليس جاهزاً
   if (!appIsReady) {
     return <SplashScreen />;
   }
