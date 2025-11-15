@@ -6,7 +6,6 @@ import {
   TouchableOpacity, StatusBar, SafeAreaView, Animated, I18nManager,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-// ✅ --- 1. استيراد useFocusEffect --- ✅
 import { useFocusEffect } from '@react-navigation/native';
 
 const { width, height } = Dimensions.get('window');
@@ -72,22 +71,18 @@ const IndexScreen = ({ navigation, route, appLanguage }) => {
         loadTheme();
     }, []);
     
-    // ✅ --- 2. إضافة هذا الـ Hook لإعادة تعيين الحالة عند الدخول للشاشة --- ✅
     useFocusEffect(
         useCallback(() => {
-            // يتم تشغيل هذا الكود في كل مرة تدخل فيها إلى هذه الشاشة
-            
-            // 1. إعادة تعيين قيمة التمرير المتحركة إلى الصفر (لإصلاح مشكلة النقطة)
             scrollX.setValue(0);
-            
-            // 2. إعادة تعيين المؤشر الحالي إلى الشريحة الأولى
             setCurrentIndex(0);
-            
-            // 3. تمرير القائمة بصريًا إلى الشريحة الأولى بدون حركة
             if (slidesRef.current) {
-                slidesRef.current.scrollToIndex({ index: 0, animated: false });
+                // قد يسبب هذا السطر نفس التحذير عند الدخول للشاشة أول مرة
+                // يمكن أيضاً وضعه داخل setTimeout لضمان عدم حدوث مشاكل
+                setTimeout(() => {
+                  slidesRef.current?.scrollToIndex({ index: 0, animated: false });
+                }, 0);
             }
-        }, []) // المصفوفة الفارغة تضمن أن هذا الكود لا يعتمد على أي متغيرات قديمة
+        }, [])
     );
 
     const onViewableItemsChanged = useRef(({ viewableItems }) => {
@@ -97,12 +92,17 @@ const IndexScreen = ({ navigation, route, appLanguage }) => {
     }).current;
     const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 50 }).current;
     
+    // ✅ ================== التعديل هنا ================== ✅
     const handleNextPress = () => {
         const nextSlideIndex = currentIndex + 1;
         if (nextSlideIndex < slidesContent.length && slidesRef.current) {
-            slidesRef.current.scrollToIndex({ index: nextSlideIndex });
+            // نستخدم setTimeout لحل مشكلة التوقيت في وضع RTL
+            setTimeout(() => {
+                slidesRef.current?.scrollToIndex({ index: nextSlideIndex });
+            }, 50); // تأخير بسيط جداً يكفي
         }
     };
+    // ✅ =============================================== ✅
     
     const slides = slidesContent.map(slide => ({
         ...slide,
