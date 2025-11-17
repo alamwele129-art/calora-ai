@@ -1,5 +1,3 @@
-// In IndexScreen.js (الكود الكامل والنهائي والمعدل)
-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, Image, Dimensions,
@@ -57,6 +55,9 @@ const IndexScreen = ({ navigation, route, appLanguage }) => {
     const slidesRef = useRef(null);
     const scrollX = useRef(new Animated.Value(0)).current;
 
+    // ✅ الخطوة 1: نضيف state جديد لتتبع حالة الـ layout
+    const [isListReady, setIsListReady] = useState(false);
+
     const t = (key) => translations[language]?.[key] || key;
 
     useEffect(() => {
@@ -71,19 +72,23 @@ const IndexScreen = ({ navigation, route, appLanguage }) => {
         loadTheme();
     }, []);
     
+    // ✅ الخطوة 2: تعديل useFocusEffect ليعيد تعيين الحالة فقط عند التركيز على الشاشة
     useFocusEffect(
         useCallback(() => {
+            // نعيد تعيين كل شيء عند العودة لهذه الشاشة
             scrollX.setValue(0);
             setCurrentIndex(0);
-            if (slidesRef.current) {
-                // قد يسبب هذا السطر نفس التحذير عند الدخول للشاشة أول مرة
-                // يمكن أيضاً وضعه داخل setTimeout لضمان عدم حدوث مشاكل
-                setTimeout(() => {
-                  slidesRef.current?.scrollToIndex({ index: 0, animated: false });
-                }, 0);
-            }
+            setIsListReady(false); // مهم جداً: نعيد تعيين حالة الجاهزية
         }, [])
     );
+
+    // ✅ الخطوة 3: نستخدم useEffect جديد لينتظر حتى تصبح القائمة جاهزة ثم يقوم بالتمرير
+    useEffect(() => {
+        // هذا الكود لن يعمل إلا بعد أن يتم استدعاء onLayout وتصبح isListReady = true
+        if (isListReady && slidesRef.current) {
+            slidesRef.current.scrollToIndex({ index: 0, animated: false });
+        }
+    }, [isListReady]); // نراقب التغيير في حالة جاهزية القائمة
 
     const onViewableItemsChanged = useRef(({ viewableItems }) => {
         if (viewableItems.length > 0) {
@@ -92,17 +97,15 @@ const IndexScreen = ({ navigation, route, appLanguage }) => {
     }).current;
     const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 50 }).current;
     
-    // ✅ ================== التعديل هنا ================== ✅
     const handleNextPress = () => {
         const nextSlideIndex = currentIndex + 1;
         if (nextSlideIndex < slidesContent.length && slidesRef.current) {
-            // نستخدم setTimeout لحل مشكلة التوقيت في وضع RTL
+            // التأخير هنا لا يزال مفيدًا لتجنب أي مشاكل عند الضغط السريع
             setTimeout(() => {
                 slidesRef.current?.scrollToIndex({ index: nextSlideIndex });
-            }, 50); // تأخير بسيط جداً يكفي
+            }, 50); 
         }
     };
-    // ✅ =============================================== ✅
     
     const slides = slidesContent.map(slide => ({
         ...slide,
@@ -137,6 +140,8 @@ const IndexScreen = ({ navigation, route, appLanguage }) => {
                         [{ nativeEvent: { contentOffset: { x: scrollX } } }],
                         { useNativeDriver: false }
                     )}
+                    // ✅ الخطوة 4: نضيف onLayout إلى FlatList لتحديث الحالة عند اكتمال الرسم
+                    onLayout={() => setIsListReady(true)}
                     inverted={isRTL} 
                 />
             </View>
@@ -182,7 +187,8 @@ const IndexScreen = ({ navigation, route, appLanguage }) => {
     );
 };
 
-const styles = { /* ... (لا تغيير في الأنماط) ... */ 
+// ... الأنماط (styles) تبقى كما هي بدون أي تغيير
+const styles = {
     container: (theme) => ({ flex: 1, backgroundColor: theme.background, }),
     topContainer: (theme) => ({ height: height * 0.52, backgroundColor: theme.background, borderBottomLeftRadius: 80, borderBottomRightRadius: 80, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 5, elevation: 8, overflow: 'hidden', }),
     slideItem: { width: width, height: '100%', alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 40, },
