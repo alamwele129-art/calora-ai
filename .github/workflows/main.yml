@@ -1,4 +1,4 @@
-name: Build Android APK Natively
+name: Fix Build Android Release
 
 on:
   push:
@@ -10,54 +10,70 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 1. يسحب الكود
+      # 1. سحب الكود
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. يجهز Node.js
+      # 2. حذف مجلد android القديم (تنظيف كامل)
+      - name: Clean old Android folder
+        run: rm -rf android
+
+      # 3. تجهيز Node.js
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20.x
+          cache: 'npm'
 
-      # 3. يجهز Java
+      # 4. تجهيز Java 17
       - name: Set up Java
+        id: setup-java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 4. يثبت المكتبات
+      # 5. تثبيت نظيف للمكتبات
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
-      # 5. ✅✅✅ الخطوة الجديدة والأساسية لحل المشكلة ✅✅✅
-      # هذه الخطوة تقوم بتحويل إعدادات app.json إلى ملفات أندرويد أصلية
+      # 6. إنشاء ملفات الأندرويد
       - name: Generate native Android files
-        run: npx expo prebuild --platform android --no-install
-      
-      # 6. يرجع ملف التوقيع
-      - name: Decode Keystore
-        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > ./android/my-release-key.keystore
+        run: npx expo prebuild --platform android --no-install --clean
 
-      # 7. يعطي صلاحية التنفيذ
+      # 7. إنشاء مفتاح توقيع مؤقت
+      - name: Generate Temporary Keystore
+        working-directory: ./android/app
+        run: |
+          keytool -genkey -v -keystore release.keystore \
+          -alias androidrelease \
+          -keyalg RSA -keysize 2048 -validity 10000 \
+          -storepass 123456 -keypass 123456 \
+          -dname "CN=Android,O=Android,C=US"
+
+      # 8. إعطاء صلاحية التنفيذ
       - name: Make gradlew executable
         working-directory: ./android
         run: chmod +x ./gradlew
 
-      # 8. يبدأ عملية البناء
+      # 9. بناء التطبيق (تم تصحيح الخطأ هنا بدمج env)
       - name: Build Android Release APK
         working-directory: ./android
-        run: ./gradlew assembleRelease
+        run: |
+          ./gradlew assembleRelease \
+            -Dorg.gradle.java.home=${{ steps.setup-java.outputs.path }} \
+            --no-daemon \
+            --stacktrace
         env:
-          MYAPP_UPLOAD_STORE_FILE: my-release-key.keystore
-          MYAPP_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          MYAPP_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          MYAPP_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          JAVA_HOME: ${{ steps.setup-java.outputs.path }}
+          MYAPP_UPLOAD_STORE_FILE: release.keystore
+          MYAPP_UPLOAD_KEY_ALIAS: androidrelease
+          MYAPP_UPLOAD_STORE_PASSWORD: 123456
+          MYAPP_UPLOAD_KEY_PASSWORD: 123456
 
-      # 9. يرفع الـ APK
+      # 10. رفع الـ APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: calora-apk
+          name: calora-release-apk
           path: android/app/build/outputs/apk/release/app-release.apk

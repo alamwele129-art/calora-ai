@@ -1,15 +1,14 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, Image, Dimensions,
-  TouchableOpacity, StatusBar, SafeAreaView, Animated, I18nManager,
+  View, Text, FlatList, Image, Dimensions,
+  TouchableOpacity, StatusBar, SafeAreaView, I18nManager, Animated, Easing, Platform
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useFocusEffect } from '@react-navigation/native';
 
 const { width, height } = Dimensions.get('window');
 
 // ==========================================================
-// ===== الثيمات والترجمات (بدون تغيير) =====
+// ===== الثيمات والبيانات =====
 // ==========================================================
 const lightTheme = {
     background: '#F6FEF6', primary: '#4CAF50', text: '#333333',
@@ -39,25 +38,58 @@ const translations = {
         nextButton: 'Next', signInButton: 'Sign In', signUpButton: 'Sign Up',
     }
 };
+
 const slidesContent = [
     { id: '1', image: require('./assets/scan.png'), titleKey: 'cameraTitle', descriptionKey: 'cameraDesc' },
     { id: '2', image: require('./assets/calorie.png'), titleKey: 'accuracyTitle', descriptionKey: 'accuracyDesc' },
     { id: '3', image: require('./assets/goal.png'), titleKey: 'resultsTitle', descriptionKey: 'resultsDesc' }
 ];
-const getItemLayout = (_, index) => ({ length: width, offset: width * index, index });
+
+// مكون منفصل للنقطة عشان نتحكم في الأنيميشن بتاعها لوحدها
+const PaginatorDot = ({ isActive, theme }) => {
+    // قيمة مبدئية للعرض (8 لو مش نشطة، 25 لو نشطة)
+    const widthAnim = useRef(new Animated.Value(isActive ? 25 : 8)).current;
+    const opacityAnim = useRef(new Animated.Value(isActive ? 1 : 0.3)).current;
+
+    useEffect(() => {
+        // الأنيميشن بيحصل لما الحالة (isActive) تتغير
+        Animated.parallel([
+            Animated.timing(widthAnim, {
+                toValue: isActive ? 25 : 8,
+                duration: 300, // سرعة الحركة
+                useNativeDriver: false,
+                easing: Easing.ease,
+            }),
+            Animated.timing(opacityAnim, {
+                toValue: isActive ? 1 : 0.3,
+                duration: 300,
+                useNativeDriver: false,
+            })
+        ]).start();
+    }, [isActive]);
+
+    return (
+        <Animated.View
+            style={{
+                height: 8,
+                borderRadius: 4,
+                marginHorizontal: 4,
+                backgroundColor: theme.primary,
+                width: widthAnim,
+                opacity: opacityAnim,
+            }}
+        />
+    );
+};
 
 const IndexScreen = ({ navigation, route, appLanguage }) => {
     const [theme, setTheme] = useState(lightTheme);
-    const language = appLanguage; 
-    const isRTL = language === 'ar';
+    const isRTL = I18nManager.isRTL; 
+    const language = appLanguage || (isRTL ? 'ar' : 'en');
     
     const [currentIndex, setCurrentIndex] = useState(0);
     const slidesRef = useRef(null);
-    const scrollX = useRef(new Animated.Value(0)).current;
-
-    // ✅ الخطوة 1: نضيف state جديد لتتبع حالة الـ layout
-    const [isListReady, setIsListReady] = useState(false);
-
+    
     const t = (key) => translations[language]?.[key] || key;
 
     useEffect(() => {
@@ -65,48 +97,25 @@ const IndexScreen = ({ navigation, route, appLanguage }) => {
             try {
                 const savedTheme = await AsyncStorage.getItem('isDarkMode');
                 setTheme(savedTheme === 'true' ? darkTheme : lightTheme);
-            } catch (e) {
-                console.error('Failed to load theme.', e);
-            }
+            } catch (e) { console.error(e); }
         };
         loadTheme();
     }, []);
-    
-    // ✅ الخطوة 2: تعديل useFocusEffect ليعيد تعيين الحالة فقط عند التركيز على الشاشة
-    useFocusEffect(
-        useCallback(() => {
-            // نعيد تعيين كل شيء عند العودة لهذه الشاشة
-            scrollX.setValue(0);
-            setCurrentIndex(0);
-            setIsListReady(false); // مهم جداً: نعيد تعيين حالة الجاهزية
-        }, [])
-    );
 
-    // ✅ الخطوة 3: نستخدم useEffect جديد لينتظر حتى تصبح القائمة جاهزة ثم يقوم بالتمرير
-    useEffect(() => {
-        // هذا الكود لن يعمل إلا بعد أن يتم استدعاء onLayout وتصبح isListReady = true
-        if (isListReady && slidesRef.current) {
-            slidesRef.current.scrollToIndex({ index: 0, animated: false });
-        }
-    }, [isListReady]); // نراقب التغيير في حالة جاهزية القائمة
+    // تحديث رقم الصفحة الحالي بدقة
+    const onMomentumScrollEnd = (event) => {
+        const index = Math.round(event.nativeEvent.contentOffset.x / width);
+        setCurrentIndex(index);
+    };
 
-    const onViewableItemsChanged = useRef(({ viewableItems }) => {
-        if (viewableItems.length > 0) {
-            setCurrentIndex(viewableItems[0].index);
-        }
-    }).current;
-    const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 50 }).current;
-    
     const handleNextPress = () => {
         const nextSlideIndex = currentIndex + 1;
-        if (nextSlideIndex < slidesContent.length && slidesRef.current) {
-            // التأخير هنا لا يزال مفيدًا لتجنب أي مشاكل عند الضغط السريع
-            setTimeout(() => {
-                slidesRef.current?.scrollToIndex({ index: nextSlideIndex });
-            }, 50); 
+        if (nextSlideIndex < slidesContent.length) {
+            slidesRef.current?.scrollToIndex({ index: nextSlideIndex, animated: true });
+            setCurrentIndex(nextSlideIndex);
         }
     };
-    
+
     const slides = slidesContent.map(slide => ({
         ...slide,
         title: t(slide.titleKey),
@@ -118,6 +127,7 @@ const IndexScreen = ({ navigation, route, appLanguage }) => {
     return (
         <SafeAreaView style={styles.container(theme)}>
             <StatusBar barStyle={theme.statusBar} backgroundColor={theme.background} />
+            
             <View style={styles.topContainer(theme)}>
                 <FlatList
                     ref={slidesRef}
@@ -132,29 +142,37 @@ const IndexScreen = ({ navigation, route, appLanguage }) => {
                     pagingEnabled
                     bounces={false}
                     keyExtractor={(item) => item.id}
-                    onViewableItemsChanged={onViewableItemsChanged}
-                    viewabilityConfig={viewabilityConfig}
-                    getItemLayout={getItemLayout}
-                    scrollEventThrottle={32}
-                    onScroll={Animated.event(
-                        [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-                        { useNativeDriver: false }
-                    )}
-                    // ✅ الخطوة 4: نضيف onLayout إلى FlatList لتحديث الحالة عند اكتمال الرسم
-                    onLayout={() => setIsListReady(true)}
-                    inverted={isRTL} 
+                    onMomentumScrollEnd={onMomentumScrollEnd}
+                    // مهم: تحديد اتجاه الليست عشان العربي
+                    inverted={isRTL && Platform.OS === 'android' ? false : false} 
+                    getItemLayout={(_, index) => ({
+                        length: width,
+                        offset: width * index,
+                        index,
+                    })}
+                    initialNumToRender={1} 
+                    windowSize={3}
                 />
             </View>
 
             <View style={styles.bottomContainer(theme, isRTL)}>
                 <View>
-                    <View style={styles.paginatorContainer(isRTL)}>
+                    {/* 
+                        تعديل جذري هنا:
+                        بنرسم النقط بناءً على الـ currentIndex
+                        وده بيضمن إن النقطة الصح هي اللي تنور بغض النظر عن اتجاه اللغة
+                    */}
+                    <View style={styles.paginatorContainer}>
                         {slides.map((_, i) => {
-                            const itemIndex = isRTL ? slides.length - 1 - i : i;
-                            const inputRange = [(itemIndex - 1) * width, itemIndex * width, (itemIndex + 1) * width];
-                            const dotWidth = scrollX.interpolate({ inputRange, outputRange: [8, 25, 8], extrapolate: 'clamp' });
-                            const opacity = scrollX.interpolate({ inputRange, outputRange: [0.5, 1, 0.5], extrapolate: 'clamp' });
-                            return <Animated.View key={i.toString()} style={[styles.dot(theme), { width: dotWidth, opacity }]} />;
+                            // مقارنة مباشرة: هل النقطة دي هي الصفحة الحالية؟
+                            const isActive = i === currentIndex;
+                            return (
+                                <PaginatorDot 
+                                    key={i.toString()} 
+                                    isActive={isActive} 
+                                    theme={theme} 
+                                />
+                            );
                         })}
                     </View>
 
@@ -187,20 +205,18 @@ const IndexScreen = ({ navigation, route, appLanguage }) => {
     );
 };
 
-// ... الأنماط (styles) تبقى كما هي بدون أي تغيير
 const styles = {
     container: (theme) => ({ flex: 1, backgroundColor: theme.background, }),
-    topContainer: (theme) => ({ height: height * 0.52, backgroundColor: theme.background, borderBottomLeftRadius: 80, borderBottomRightRadius: 80, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 5, elevation: 8, overflow: 'hidden', }),
-    slideItem: { width: width, height: '100%', alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 40, },
-    image: { width: width * 0.75, height: height * 0.4, },
+    topContainer: (theme) => ({ height: height * 0.55, backgroundColor: theme.background, borderBottomLeftRadius: 80, borderBottomRightRadius: 80, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 5, elevation: 8, overflow: 'hidden', justifyContent: 'center' }),
+    slideItem: { width: width, height: '100%', alignItems: 'center', justifyContent: 'center', paddingBottom: 20 },
+    image: { width: width * 0.8, height: height * 0.4 },
     bottomContainer: (theme, isRTL) => ({ flex: 1, paddingHorizontal: 30, paddingTop: 30, paddingBottom: 15, backgroundColor: theme.background, justifyContent: 'space-between',  }),
-    title: (theme, isRTL) => ({ fontSize: 28, fontWeight: 'bold', color: theme.text, textAlign: isRTL ? 'right' : 'left', marginBottom: 12, }),
-    description: (theme, isRTL) => ({ fontSize: 13, color: theme.text, textAlign: isRTL ? 'right' : 'left', lineHeight: 20, opacity: 0.7, }),
-    paginatorContainer: (isRTL) => ({ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'flex-start', marginBottom: 25, }),
-    dot: (theme) => ({ height: 8, borderRadius: 4, marginHorizontal: 4, backgroundColor: theme.primary, }),
+    title: (theme, isRTL) => ({ fontSize: 28, fontWeight: 'bold', color: theme.text, textAlign: 'left', marginBottom: 12, writingDirection: isRTL ? 'rtl' : 'ltr' }), 
+    description: (theme, isRTL) => ({ fontSize: 13, color: theme.text, textAlign: 'left', lineHeight: 20, opacity: 0.7, writingDirection: isRTL ? 'rtl' : 'ltr' }),
+    paginatorContainer: { flexDirection: 'row', justifyContent: 'flex-start', marginBottom: 25, height: 10 },
     button: (theme) => ({ backgroundColor: theme.white, borderRadius: 50, paddingVertical: 18, width: '100%', alignItems: 'center', justifyContent: 'center', elevation: 5, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5, }),
     buttonText: (theme) => ({ fontSize: 16, fontWeight: '600', color: theme.text, }),
-    authButtonsContainer: (isRTL) => ({ flexDirection: isRTL ? 'row-reverse' : 'row', width: '100%', justifyContent: 'space-between', gap: 15, marginTop: 20, }),
+    authButtonsContainer: (isRTL) => ({ flexDirection: 'row', width: '100%', justifyContent: 'space-between', gap: 15, marginTop: 20, }),
     authButton: (specificStyles) => ({ flex: 1, paddingVertical: 16, borderRadius: 50, alignItems: 'center', justifyContent: 'center', ...specificStyles, }),
     signInButton: (theme) => ({ backgroundColor: 'transparent', borderWidth: 1.5, borderColor: theme.primary, }),
     signUpButton: (theme) => ({ backgroundColor: theme.primary, elevation: 5, shadowColor: theme.primary, shadowOpacity: 0.3, shadowRadius: 5, }),

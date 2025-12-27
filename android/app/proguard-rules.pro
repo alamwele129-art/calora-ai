@@ -7,8 +7,20 @@
 # For more details, see
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
-# react-native-reanimated
+# --- React Native Reanimated ---
 -keep class com.swmansion.reanimated.** { *; }
 -keep class com.facebook.react.turbomodule.** { *; }
 
-# Add any project specific keep options here:
+# --- Google Fit & Google Play Services Fixes ---
+# هذه الأسطر تمنع حذف مكتبة جوجل فيت أثناء بناء نسخة الـ Release
+-keep class com.google.android.gms.** { *; }
+-keep class com.google.api.client.** { *; }
+-keep class com.reactnative.googlefit.** { *; }
+
+# --- Suppress Warnings ---
+# تجاهل تحذيرات معينة قد توقف البناء
+-dontwarn com.google.android.gms.**
+-dontwarn com.squareup.okhttp.**
+
+# --- General React Native ---
+-keep class com.facebook.react.** { *; }

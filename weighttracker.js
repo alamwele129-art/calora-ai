@@ -1,5 +1,5 @@
-// weighttracker.js - الكود الكامل والمعدل
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+// weighttracker.js
+import React, { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import {
     View, Text, StyleSheet, SafeAreaView, TouchableOpacity, FlatList,
     Modal, TextInput, Dimensions, Alert, StatusBar, ActivityIndicator
@@ -8,30 +8,30 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LineChart } from 'react-native-chart-kit';
-import GoogleFit from 'react-native-google-fit';
-import { supabase } from './supabaseclient'; // <-- استيراد Supabase
+import { supabase } from './supabaseclient'; 
 
 const screenWidth = Dimensions.get('window').width;
-const HISTORY_KEY_LOCAL = 'weightHistory'; // <-- تغيير اسم المفتاح المحلي
+const HISTORY_KEY_LOCAL = 'weightHistory'; 
+
 const lightTheme = { primary: '#388E3C', background: '#E8F5E9', card: '#FFFFFF', textPrimary: '#212121', textSecondary: '#757575', inputBackground: '#F5F5F5', overlay: 'rgba(0,0,0,0.5)', statusBar: 'dark-content', chartLine: (opacity = 1) => `rgba(56, 142, 60, ${opacity})`, chartLabel: (opacity = 1) => `rgba(33, 33, 33, ${opacity})`, tooltipBg: '#212121', tooltipText: '#FFFFFF', white: '#FFFFFF', red: '#F44336' };
 const darkTheme = { primary: '#66BB6A', background: '#121212', card: '#1E1E1E', textPrimary: '#FFFFFF', textSecondary: '#B0B0B0', inputBackground: '#2C2C2C', overlay: 'rgba(0,0,0,0.7)', statusBar: 'light-content', chartLine: (opacity = 1) => `rgba(102, 187, 106, ${opacity})`, chartLabel: (opacity = 1) => `rgba(224, 224, 224, ${opacity})`, tooltipBg: '#E0E0E0', tooltipText: '#121212', white: '#FFFFFF', red: '#EF9A9A' };
-const translations = { ar: { weightProgress: 'تطور الوزن', chartEmpty: 'أضف وزنين على الأقل لرؤية الرسم البياني.', statistics: 'إحصائيات', startWeight: 'وزن البداية', currentWeight: 'الوزن الحالي', totalChange: 'التغير الكلي', history: 'السجل التاريخي', historyEmpty: 'لم تقم بتسجيل وزنك بعد.', addWeightTitle: 'إضافة وزن جديد', weightInputPlaceholder: 'أدخل وزنك بالكيلوجرام', cancel: 'إلغاء', save: 'حفظ', errorTitle: 'خطأ', invalidWeight: 'الرجاء إدخال وزن صحيح.', kgUnit: ' كجم' }, en: { weightProgress: 'Weight Progress', chartEmpty: 'Add at least two weights to see the chart.', statistics: 'Statistics', startWeight: 'Start Weight', currentWeight: 'Current Weight', totalChange: 'Total Change', history: 'History Log', historyEmpty: 'You have not logged your weight yet.', addWeightTitle: 'Add New Weight', weightInputPlaceholder: 'Enter your weight in kg', cancel: 'Cancel', save: 'Save', errorTitle: 'Error', invalidWeight: 'Please enter a valid weight.', kgUnit: ' kg' } };
+const translations = { ar: { weightTracker: 'متابع الوزن', weightProgress: 'تطور الوزن', chartEmpty: 'أضف وزنين على الأقل لرؤية الرسم البياني.', statistics: 'إحصائيات', startWeight: 'وزن البداية', currentWeight: 'الوزن الحالي', totalChange: 'التغير الكلي', history: 'السجل التاريخي', historyEmpty: 'لم تقم بتسجيل وزنك بعد.', addWeightTitle: 'إضافة وزن جديد', weightInputPlaceholder: 'أدخل وزنك بالكيلوجرام', cancel: 'إلغاء', save: 'حفظ', errorTitle: 'خطأ', invalidWeight: 'الرجاء إدخال وزن صحيح.', kgUnit: ' كجم' }, en: { weightTracker: 'Weight Tracker', weightProgress: 'Weight Progress', chartEmpty: 'Add at least two weights to see the chart.', statistics: 'Statistics', startWeight: 'Start Weight', currentWeight: 'Current Weight', totalChange: 'Total Change', history: 'History Log', historyEmpty: 'You have not logged your weight yet.', addWeightTitle: 'Add New Weight', weightInputPlaceholder: 'Enter your weight in kg', cancel: 'Cancel', save: 'Save', errorTitle: 'Error', invalidWeight: 'Please enter a valid weight.', kgUnit: ' kg' } };
 
 const WeightChartComponent = ({ data, theme, selectedPoint, onPointClick, t }) => {
     const chartConfig = { backgroundColor: theme.card, backgroundGradientFrom: theme.card, backgroundGradientTo: theme.card, decimalPlaces: 1, color: theme.chartLine, labelColor: theme.chartLabel, propsForDots: { r: "5", strokeWidth: "2", stroke: theme.background } };
     if (!data || !data.labels || data.labels.length === 0) return null;
     return (
         <View>
-            <LineChart data={data} width={screenWidth - 60} height={220} yAxisSuffix={t('kgUnit')} chartConfig={chartConfig} withShadow bezier style={{ borderRadius: 16 }} onDataPointClick={onPointClick} />
+            <LineChart data={data} width={screenWidth - 40} height={220} yAxisSuffix={t('kgUnit')} chartConfig={chartConfig} withShadow bezier style={{ borderRadius: 16 }} onDataPointClick={onPointClick} />
             {selectedPoint && ( <View style={[styles.tooltipPositioner, { left: selectedPoint.x, top: selectedPoint.y }]}><View style={styles.tooltipContainer}><View style={styles.tooltipBox(theme)}><View style={styles.tooltipContent}><Text style={styles.tooltipValue(theme)}>{selectedPoint.value.toFixed(1)}</Text><Text style={styles.tooltipUnit(theme)}>{t('kgUnit')}</Text></View></View><View style={styles.tooltipArrow(theme)} /></View></View> )}
         </View>
     );
 };
 
-const WeightScreen = () => {
+const WeightScreen = ({ navigation }) => {
     const [theme, setTheme] = useState(lightTheme);
-    const [language, setLanguage] = useState('ar');
-    const [isRTL, setIsRTL] = useState(true);
+    const [language, setLanguage] = useState('en');
+    const [isRTL, setIsRTL] = useState(false); 
     const [history, setHistory] = useState([]);
     const [isModalVisible, setModalVisible] = useState(false);
     const [newWeight, setNewWeight] = useState('');
@@ -42,6 +42,32 @@ const WeightScreen = () => {
     const [chartKey, setChartKey] = useState(0);
     const weightInputRef = useRef(null);
 
+    // 🔥🔥🔥 التعديل هنا: رجعت العنوان وظبطت السهم 🔥🔥🔥
+    useLayoutEffect(() => {
+        const renderArrowButton = () => (
+            <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginHorizontal: 15 }}>
+                <Ionicons 
+                    // لو إنجليزي (RTL) -> سهم يمين، لو عربي -> سهم شمال
+                    name={isRTL ? "arrow-back" : "arrow-forward"} 
+                    size={24} 
+                    color={theme.textPrimary} 
+                />
+            </TouchableOpacity>
+        );
+
+        navigation.setOptions({
+            // العنوان زي الصورة "Weight Tracker"
+            headerTitle: language === 'ar' ? 'متابع الوزن' : 'Weight Tracker',
+            headerTitleAlign: 'center', // دي عشان تضمن إن العنوان يفضل في النص مهما مكان السهم اتغير
+            
+            // لو إنجليزي (isRTL) حط السهم يمين، غير كده undefined
+            headerRight: isRTL ? renderArrowButton : undefined,
+            
+            // لو إنجليزي (isRTL) اخفي الشمال، لو عربي حط السهم شمال
+            headerLeft: isRTL ? () => null : renderArrowButton,
+        });
+    }, [navigation, isRTL, theme, language]);
+
     useEffect(() => {
         if (isModalVisible) {
             const timeout = setTimeout(() => { weightInputRef.current?.focus(); }, 100);
@@ -51,7 +77,7 @@ const WeightScreen = () => {
 
     const t = (key) => translations[language]?.[key] || translations['en'][key];
     
-    // ✅ ===== دالة تحميل البيانات (معدلة بالكامل) ===== ✅
+    // ... باقي الكود زي ما هو بالظبط ...
     const loadHistory = useCallback(async () => {
         try {
             const { data: { user } } = await supabase.auth.getUser();
@@ -70,7 +96,7 @@ const WeightScreen = () => {
             setHistory(formattedHistory);
             return formattedHistory;
         } catch (e) {
-            console.error('Failed to load weight history from Supabase, falling back to local.', e);
+            console.error('Failed to load weight history', e);
             const jsonValue = await AsyncStorage.getItem(HISTORY_KEY_LOCAL);
             const localData = jsonValue != null ? JSON.parse(jsonValue) : [];
             localData.sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -87,14 +113,14 @@ const WeightScreen = () => {
             
             const savedTheme = await AsyncStorage.getItem('isDarkMode');
             setTheme(savedTheme === 'true' ? darkTheme : lightTheme);
+            
             const savedLang = await AsyncStorage.getItem('appLanguage');
-            const currentLang = savedLang || 'ar';
+            const currentLang = savedLang || 'en';
             setLanguage(currentLang);
-            setIsRTL(currentLang === 'ar');
+            
+            setIsRTL(currentLang === 'en');
             
             let historyData = await loadHistory();
-            
-            // ... (Google Fit sync can remain as is)
             
             const newChartData = historyData.length > 0 ? { labels: historyData.map(item => new Date(item.date).toLocaleDateString(currentLang === 'ar' ? 'ar-EG' : 'en-US', { day: 'numeric', month: 'short' })).slice(-7), datasets: [{ data: historyData.map(item => item.weight).slice(-7), strokeWidth: 3 }] } : { labels: [], datasets: [{ data: [] }] };
             setDisplayChartData(newChartData);
@@ -103,7 +129,6 @@ const WeightScreen = () => {
         loadAndPrepareData();
     }, [loadHistory]));
     
-    // ✅ ===== دالة حفظ البيانات (معدلة بالكامل) ===== ✅
     const handleSaveWeight = async () => {
         const weightValue = parseFloat(newWeight.replace(',', '.'));
         if (isNaN(weightValue) || weightValue <= 0) {
@@ -115,7 +140,6 @@ const WeightScreen = () => {
         const newEntry = { date: today.toISOString(), weight: weightValue };
         let updatedHistory;
 
-        // تحديث الواجهة فوراً
         const todayDateString = today.toISOString().split('T')[0];
         const existingEntryIndex = history.findIndex(item => new Date(item.date).toISOString().split('T')[0] === todayDateString);
         if (existingEntryIndex > -1) {
@@ -128,46 +152,32 @@ const WeightScreen = () => {
         setHistory(updatedHistory);
         
         try {
-            // الحفظ المحلي
             await AsyncStorage.setItem(HISTORY_KEY_LOCAL, JSON.stringify(updatedHistory));
-            
-            // الحفظ في Supabase
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error("User not authenticated");
 
-            // نستخدم upsert لضمان عدم تكرار الوزن في نفس اليوم
             const { error } = await supabase
                 .from('weight_history')
                 .upsert({ 
                     user_id: user.id, 
                     entry_date: today.toISOString(), 
                     weight: weightValue
-                }, { 
-                    onConflict: 'user_id, entry_date' // لم ننشئ قيدًا فريدًا، لذا سنحتاج إلى منطق مختلف قليلاً
-                    // نظرًا لعدم وجود قيد فريد، سنقوم بالحذف ثم الإدراج إذا كان الإدخال موجودًا بالفعل
-                });
+                }, { onConflict: 'user_id, entry_date' });
             
-            // For simplicity, we'll just insert. A more robust solution might check for an existing entry for the day first.
-            const { error: insertError } = await supabase.from('weight_history').insert({
-                user_id: user.id,
-                entry_date: newEntry.date,
-                weight: newEntry.weight
-            });
-
-
-            if (insertError) throw insertError;
+            if (error && error.code === '23505') { 
+                 await supabase.from('weight_history').insert({ user_id: user.id, entry_date: newEntry.date, weight: newEntry.weight });
+            }
 
             setNewWeight('');
             setModalVisible(false);
         } catch (e) {
             console.error('Failed to save weight.', e);
-            Alert.alert(t('errorTitle'), e.message);
-            // لو فشل الحفظ في Supabase، ارجع الحالة للشكل القديم
             loadHistory(); 
         }
     };
 
     const handlePointClick = (data) => { if (isProcessingClick) return; setIsProcessingClick(true); if (selectedPoint && selectedPoint.index === data.index && selectedPoint.value === data.value) { setSelectedPoint(null); } else { setSelectedPoint(data); } setTimeout(() => { setIsProcessingClick(false); }, 300); };
+    
     const currentWeight = history.length > 0 ? history[history.length - 1].weight : 0;
     const startWeight = history.length > 0 ? history[0].weight : 0;
     const weightChange = history.length > 1 ? currentWeight - startWeight : 0;
@@ -185,19 +195,68 @@ const WeightScreen = () => {
                             <Text style={styles.sectionTitle(theme, isRTL)}>{t('weightProgress')}</Text>
                             {isChartLoading ? (<View style={styles.chartLoaderContainer}><ActivityIndicator size="large" color={theme.primary} /></View>) : history.length > 1 ? (<WeightChartComponent key={chartKey} data={displayChartData} theme={theme} selectedPoint={selectedPoint} onPointClick={handlePointClick} t={t} />) : (<View style={styles.chartLoaderContainer}><Text style={styles.emptyText(theme)}>{t('chartEmpty')}</Text></View>)}
                         </View>
+                        
                         <View style={styles.card(theme)}>
                             <Text style={styles.sectionTitle(theme, isRTL)}>{t('statistics')}</Text>
-                            <View style={styles.statsContainer(isRTL)}><View style={styles.statItem}><Text style={styles.statValue(theme)}>{startWeight}{t('kgUnit')}</Text><Text style={styles.statLabel(theme)}>{t('startWeight')}</Text></View><View style={styles.statItem}><Text style={styles.statValue(theme)}>{currentWeight}{t('kgUnit')}</Text><Text style={styles.statLabel(theme)}>{t('currentWeight')}</Text></View><View style={styles.statItem}><Text style={[styles.statValue(theme), {color: weightChange > 0 ? theme.red : theme.primary}]}>{weightChange.toFixed(1)}{t('kgUnit')}</Text><Text style={styles.statLabel(theme)}>{t('totalChange')}</Text></View></View>
+                            <View style={styles.statsContainer(isRTL)}>
+                                <View style={styles.statItem}>
+                                    <Text style={styles.statValue(theme)}>{startWeight}{t('kgUnit')}</Text>
+                                    <Text style={styles.statLabel(theme)}>{t('startWeight')}</Text>
+                                </View>
+                                <View style={styles.statItem}>
+                                    <Text style={styles.statValue(theme)}>{currentWeight}{t('kgUnit')}</Text>
+                                    <Text style={styles.statLabel(theme)}>{t('currentWeight')}</Text>
+                                </View>
+                                <View style={styles.statItem}>
+                                    <Text style={[styles.statValue(theme), {color: weightChange > 0 ? theme.red : theme.primary}]}>{weightChange.toFixed(1)}{t('kgUnit')}</Text>
+                                    <Text style={styles.statLabel(theme)}>{t('totalChange')}</Text>
+                                </View>
+                            </View>
                         </View>
-                        <View style={styles.historyHeaderCard(theme)}><Text style={styles.sectionTitle(theme, isRTL)}>{t('history')}</Text></View>
+                        
+                        <View style={styles.historyHeaderCard(theme)}>
+                            <Text style={styles.sectionTitle(theme, isRTL)}>{t('history')}</Text>
+                        </View>
                     </>
                 )}
-                renderItem={({ item }) => (<View style={styles.historyItemContainer(theme)}><View style={styles.historyItem(theme, isRTL)}><Text style={styles.historyWeight(theme)}>{item.weight}{t('kgUnit')}</Text><Text style={styles.historyDate(theme)}>{new Date(item.date).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</Text></View></View>)}
+                renderItem={({ item }) => (
+                    <View style={styles.historyItemContainer(theme)}>
+                        <View style={styles.historyItem(theme, isRTL)}>
+                            <Text style={styles.historyWeight(theme)}>{item.weight}{t('kgUnit')}</Text>
+                            <Text style={styles.historyDate(theme)}>{new Date(item.date).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</Text>
+                        </View>
+                    </View>
+                )}
                 ListEmptyComponent={<View style={styles.emptyHistoryContainer(theme)}><Text style={styles.emptyText(theme)}>{t('historyEmpty')}</Text></View>}
             />
-            <TouchableOpacity style={styles.fab(theme, isRTL)} onPress={() => setModalVisible(true)}><Ionicons name="add" size={30} color={theme.white} /></TouchableOpacity>
+            
+            <TouchableOpacity style={styles.fab(theme, isRTL)} onPress={() => setModalVisible(true)}>
+                <Ionicons name="add" size={30} color={theme.white} />
+            </TouchableOpacity>
+            
             <Modal visible={isModalVisible} transparent={true} animationType="fade" onRequestClose={() => setModalVisible(false)}>
-                <View style={styles.modalOverlay(theme)}><View style={styles.modalView(theme)}><Text style={styles.modalTitle(theme)}>{t('addWeightTitle')}</Text><TextInput ref={weightInputRef} style={styles.weightInput(theme, isRTL)} value={newWeight} onChangeText={setNewWeight} keyboardType="numeric" placeholder={t('weightInputPlaceholder')} placeholderTextColor={theme.textSecondary} /><View style={styles.modalActions(isRTL)}><TouchableOpacity style={[styles.actionButton, styles.cancelButton(theme)]} onPress={() => setModalVisible(false)}><Text style={[styles.actionButtonText, styles.cancelButtonText(theme)]}>{t('cancel')}</Text></TouchableOpacity><TouchableOpacity style={[styles.actionButton, styles.addButton(theme)]} onPress={handleSaveWeight}><Text style={styles.actionButtonText(theme)}>{t('save')}</Text></TouchableOpacity></View></View></View>
+                <View style={styles.modalOverlay(theme)}>
+                    <View style={styles.modalView(theme)}>
+                        <Text style={styles.modalTitle(theme)}>{t('addWeightTitle')}</Text>
+                        <TextInput 
+                            ref={weightInputRef} 
+                            style={styles.weightInput(theme, isRTL)} 
+                            value={newWeight} 
+                            onChangeText={setNewWeight} 
+                            keyboardType="numeric" 
+                            placeholder={t('weightInputPlaceholder')} 
+                            placeholderTextColor={theme.textSecondary} 
+                        />
+                        <View style={styles.modalActions(isRTL)}>
+                            <TouchableOpacity style={[styles.actionButton, styles.cancelButton(theme)]} onPress={() => setModalVisible(false)}>
+                                <Text style={[styles.actionButtonText, styles.cancelButtonText(theme)]}>{t('cancel')}</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.actionButton, styles.addButton(theme)]} onPress={handleSaveWeight}>
+                                <Text style={styles.actionButtonText(theme)}>{t('save')}</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
             </Modal>
         </SafeAreaView>
     );

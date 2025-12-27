@@ -1,103 +1,159 @@
-// profile.js - الكود الكامل
 import React, { useState, useCallback } from 'react';
-import { StyleSheet, View, Text, Image, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, RefreshControl, Alert } from 'react-native';
+import { 
+  StyleSheet, View, Text, Image, ScrollView, TouchableOpacity, 
+  SafeAreaView, StatusBar, RefreshControl, Alert 
+} from 'react-native';
 import Icon from 'react-native-vector-icons/Feather';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabaseclient'; 
 
-// --- الترجمات والثيمات ---
+// ==========================================
+// الترجمات
+// ==========================================
 const translations = {
-  en: { newUser: 'New User', editProfile: 'Edit Profile', settings: 'Settings', about: 'About', logout: 'Logout', logoutErrorTitle: 'Error', logoutErrorMessage: 'An error occurred while logging out.' },
-  ar: { newUser: 'مستخدم جديد', editProfile: 'تعديل الملف الشخصي', settings: 'الإعدادات', about: 'حول التطبيق', logout: 'تسجيل الخروج', logoutErrorTitle: 'خطأ', logoutErrorMessage: 'حدث خطأ أثناء تسجيل الخروج.' },
+  en: { 
+    newUser: 'New User', 
+    editProfile: 'Edit Profile', 
+    settings: 'Settings', 
+    about: 'About', 
+    logout: 'Logout', 
+    logoutErrorTitle: 'Error', 
+    logoutErrorMessage: 'An error occurred while logging out.' 
+  },
+  ar: { 
+    newUser: 'مستخدم جديد', 
+    editProfile: 'تعديل الملف الشخصي', 
+    settings: 'الإعدادات', 
+    about: 'حول التطبيق', 
+    logout: 'تسجيل الخروج', 
+    logoutErrorTitle: 'خطأ', 
+    logoutErrorMessage: 'حدث خطأ أثناء تسجيل الخروج.' 
+  },
 };
+
+// ==========================================
+// الثيمات
+// ==========================================
 const lightTheme = { background: '#F5FBF5', surface: '#FFFFFF', primaryText: '#1C1C1E', secondaryText: '#8A8A8E', separator: '#E5E5EA', logout: '#FF3B30', statusBar: 'dark-content', borderColor: '#FFFFFF' };
 const darkTheme = { background: '#121212', surface: '#1E1E1E', primaryText: '#FFFFFF', secondaryText: '#A5A5A5', separator: '#38383A', logout: '#EF5350', statusBar: 'light-content', borderColor: '#1E1E1E' };
 
-const SettingsItem = ({ icon, name, onPress, color, theme, isRTL }) => (
-    <TouchableOpacity style={styles.settingsItem(theme)} onPress={onPress}>
-      <View style={[styles.settingsItemContent, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-        <View style={styles.settingsItemIcon(isRTL)}>{icon}</View>
+// ==========================================
+// مكون عنصر القائمة
+// ==========================================
+const SettingsItem = ({ icon, name, onPress, color, theme, appLanguage }) => (
+    <TouchableOpacity style={styles.settingsItem(theme, appLanguage)} onPress={onPress}>
+      <View style={styles.settingsItemContent(theme, appLanguage)}>
+        <View style={styles.settingsItemIcon(appLanguage)}>{icon}</View>
         <Text style={[styles.settingsItemText(theme), { color: color || theme.primaryText }]}>{name}</Text>
       </View>
-      <Icon name={isRTL ? "chevron-left" : "chevron-right"} size={22} color="#C7C7CC" />
+      <Icon name={appLanguage === 'ar' ? "chevron-left" : "chevron-right"} size={22} color="#C7C7CC" />
     </TouchableOpacity>
 );
 
-const ProfileScreen = () => {
+// ==========================================
+// الشاشة الرئيسية
+// ==========================================
+const ProfileScreen = ({ appLanguage }) => {
   const [userData, setUserData] = useState({ firstName: '', lastName: '', profileImage: null });
   const [refreshing, setRefreshing] = useState(false);
   const navigation = useNavigation();
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [language, setLanguage] = useState('ar');
+  
+  const [currentLanguage, setCurrentLanguage] = useState(appLanguage || 'en');
 
   const theme = isDarkMode ? darkTheme : lightTheme;
-  const isRTL = language === 'ar';
-  const t = (key) => translations[language]?.[key] || translations['en'][key];
+  const t = (key) => translations[currentLanguage]?.[key] || translations['en'][key];
 
   const loadScreenData = useCallback(async () => {
     try {
-      // تحميل بيانات المستخدم من الذاكرة المحلية
+      const savedLang = await AsyncStorage.getItem('appLanguage');
+      if (savedLang) {
+        setCurrentLanguage(savedLang);
+      }
+
+      const themeValue = await AsyncStorage.getItem('isDarkMode');
+      setIsDarkMode(themeValue === 'true');
+
       const userJson = await AsyncStorage.getItem('userProfile');
       if (userJson) {
         const parsedData = JSON.parse(userJson);
-        // التوافق مع الأسماء القديمة والجديدة
         setUserData({
             firstName: parsedData.firstName || parsedData.first_name,
             lastName: parsedData.lastName || parsedData.last_name,
             profileImage: parsedData.profileImage || parsedData.profile_image_url
         });
-      }
-
-      // تحميل إعدادات الثيم واللغة
-      const themeValue = await AsyncStorage.getItem('isDarkMode');
-      setIsDarkMode(themeValue === 'true');
-      
-      const langValue = await AsyncStorage.getItem('appLanguage');
-      if (langValue) {
-        setLanguage(langValue);
+      } else {
+         const { data: { user } } = await supabase.auth.getUser();
+         if(user) {
+             const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+             if(data) {
+                 setUserData({
+                     firstName: data.first_name,
+                     lastName: data.last_name,
+                     profileImage: data.profile_image_url
+                 });
+                 await AsyncStorage.setItem('userProfile', JSON.stringify(data));
+             }
+         }
       }
     } catch (e) {
       console.error("Failed to load data.", e);
     }
   }, []);
 
-  // useFocusEffect يضمن تحديث البيانات في كل مرة تدخل فيها الشاشة
   useFocusEffect(
     useCallback(() => {
       loadScreenData();
-      return () => {}; // دالة التنظيف
     }, [loadScreenData])
   );
 
-  // دالة السحب للتحديث
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadScreenData(); // فقط أعد تحميل البيانات من الذاكرة المحلية
+    await loadScreenData();
     setRefreshing(false);
   }, [loadScreenData]);
   
+  // 🔥🔥🔥 التعديل الجديد لحل مشكلة الإيرور 🔥🔥🔥
   const handleLogout = async () => {
     try {
+      // 1. نحتفظ بالإعدادات قبل المسح
+      const savedLang = await AsyncStorage.getItem('appLanguage');
+      const savedTheme = await AsyncStorage.getItem('isDarkMode');
+
+      // 2. محاولة الخروج من Supabase (بدون إيقاف الكود لو فشلت)
       const { error } = await supabase.auth.signOut();
       
       if (error) {
-        Alert.alert(t('logoutErrorTitle'), error.message);
-        return; 
+        console.log("Supabase signOut error (Ignored):", error.message);
+        // مش هنعمل return عشان نكمل مسح البيانات المحلية
       }
       
-      // مسح كل البيانات المحلية عند تسجيل الخروج
+      // 3. مسح البيانات المحلية (تنظيف التوكن والبيانات)
       await AsyncStorage.clear();
 
+      // 4. استرجاع الإعدادات
+      if (savedLang) {
+        await AsyncStorage.setItem('appLanguage', savedLang);
+      }
+      if (savedTheme) {
+        await AsyncStorage.setItem('isDarkMode', savedTheme);
+      }
+
+      // 5. الانتقال لصفحة البداية
       navigation.reset({
         index: 0,
         routes: [{ name: 'Index' }],
       });
 
     } catch (e) {
-      console.error("Logout failed", e);
-      Alert.alert(t('logoutErrorTitle'), t('logoutErrorMessage'));
+      console.error("Local logout failed", e);
+      // في حالة حدوث أي خطأ غير متوقع، ارجع للبداية برضه
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Index' }],
+      });
     }
   };
 
@@ -133,16 +189,45 @@ const ProfileScreen = () => {
             {getDisplayName()}
           </Text>
         </View>
+        
         <View style={styles.menuContainer}>
+          {/* Section 1 */}
           <View style={styles.menuSection(theme)}>
-            <SettingsItem icon={<Icon name="user" size={22} color={theme.secondaryText} />} name={t('editProfile')} onPress={() => navigation.navigate('EditProfile')} theme={theme} isRTL={isRTL}/>
+            <SettingsItem 
+                appLanguage={currentLanguage} 
+                icon={<Icon name="user" size={22} color={theme.secondaryText} />} 
+                name={t('editProfile')} 
+                onPress={() => navigation.navigate('EditProfile')} 
+                theme={theme} 
+            />
             <View style={styles.separator(theme)} />
-            <SettingsItem icon={<Ionicons name="settings-outline" size={22} color={theme.secondaryText} />} name={t('settings')} onPress={() => navigation.navigate('Settings')} theme={theme} isRTL={isRTL} />
+            <SettingsItem 
+                appLanguage={currentLanguage} 
+                icon={<Ionicons name="settings-outline" size={22} color={theme.secondaryText} />} 
+                name={t('settings')} 
+                onPress={() => navigation.navigate('Settings')} 
+                theme={theme} 
+            />
           </View>
+
+          {/* Section 2 */}
           <View style={styles.menuSection(theme)}>
-            <SettingsItem icon={<Icon name="info" size={22} color={theme.secondaryText} />} name={t('about')} onPress={() => navigation.navigate('About')} theme={theme} isRTL={isRTL} />
+            <SettingsItem 
+                appLanguage={currentLanguage} 
+                icon={<Icon name="info" size={22} color={theme.secondaryText} />} 
+                name={t('about')} 
+                onPress={() => navigation.navigate('About')} 
+                theme={theme} 
+            />
             <View style={styles.separator(theme)} />
-            <SettingsItem icon={<Ionicons name="log-out-outline" size={24} color={theme.logout} />} name={t('logout')} onPress={handleLogout} color={theme.logout} theme={theme} isRTL={isRTL} />
+            <SettingsItem 
+                appLanguage={currentLanguage} 
+                icon={<Ionicons name="log-out-outline" size={24} color={theme.logout} />} 
+                name={t('logout')} 
+                onPress={handleLogout} 
+                color={theme.logout} 
+                theme={theme} 
+            />
           </View>
         </View>
       </ScrollView>
@@ -150,6 +235,9 @@ const ProfileScreen = () => {
   );
 };
 
+// ==========================================
+// التنسيقات (Styles)
+// ==========================================
 const styles = {
   container: (theme) => ({ flex: 1, backgroundColor: theme.background }),
   header: { height: 200, overflow: 'hidden', borderBottomLeftRadius: 30, borderBottomRightRadius: 30, },
@@ -159,11 +247,34 @@ const styles = {
   profileName: (theme) => ({ fontSize: 22, fontWeight: 'bold', color: theme.primaryText, marginTop: 12 }),
   menuContainer: { paddingHorizontal: 20, marginTop: 40 },
   menuSection: (theme) => ({ backgroundColor: theme.surface, borderRadius: 12, marginBottom: 20, overflow: 'hidden' }),
-  settingsItem: (theme) => ({ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 15, paddingVertical: 15 }),
-  settingsItemContent: { alignItems: 'center', flex: 1, flexDirection: 'row' },
-  settingsItemIcon: (isRTL) => ({ marginRight: isRTL ? 0 : 15, marginLeft: isRTL ? 15 : 0, }),
-  settingsItemText: (theme) => ({ fontSize: 17, color: theme.primaryText }),
-  separator: (theme) => ({ height: StyleSheet.hairlineWidth, backgroundColor: theme.separator, marginLeft: 54, }),
+  
+  settingsItem: (theme, language) => ({ 
+    flexDirection: language === 'en' ? 'row-reverse' : 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between', 
+    paddingHorizontal: 15, 
+    paddingVertical: 15 
+  }),
+  
+  settingsItemContent: (theme, language) => ({ 
+    alignItems: 'center', 
+    flex: 1, 
+    flexDirection: language === 'en' ? 'row-reverse' : 'row',
+    justifyContent: 'flex-start' 
+  }),
+  
+  settingsItemIcon: (language) => ({ 
+    marginEnd: language === 'en' ? 0 : 8,
+    marginStart: language === 'en' ? 8 : 0 
+  }), 
+  
+  settingsItemText: (theme) => ({ 
+    fontSize: 17, 
+    color: theme.primaryText, 
+    textAlign: 'left'
+  }),
+  
+  separator: (theme) => ({ height: StyleSheet.hairlineWidth, backgroundColor: theme.separator, marginHorizontal: 15 }),
 };
 
 export default ProfileScreen;

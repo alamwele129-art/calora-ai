@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "581178554431",
+    "project_id": "calora-ai-3288d",
+    "storage_bucket": "calora-ai-3288d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:581178554431:android:bfb096c0d0b6df3f22a08a",
+        "android_client_info": {
+          "package_name": "com.caloraai.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA74i-XKEk4e6Mful_sYgDn3eW06HZgmmo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

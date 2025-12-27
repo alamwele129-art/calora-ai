@@ -1,15 +1,11 @@
-// File: about.js
-
 import React, { useState, useCallback, useMemo } from 'react';
 import {
   View, Text, SafeAreaView, ScrollView,
-  TouchableOpacity, Linking, StatusBar, StyleSheet // ✅ تم إضافة StyleSheet
+  TouchableOpacity, Linking, StatusBar, StyleSheet
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// --- DEFINITIONS (Themes & Translations) ---
 
 const lightTheme = {
     background: '#f0f7f0', card: '#FFFFFF', textPrimary: '#212121',
@@ -60,13 +56,16 @@ const translations = {
     }
 };
 
-const AboutScreen = () => {
+const AboutScreen = ({ route }) => { 
+    const initialLang = route?.params?.appLanguage || 'en';
     const [theme, setTheme] = useState(lightTheme);
-    const [language, setLanguage] = useState('ar');
-    const [isRTL, setIsRTL] = useState(true);
+    const [language, setLanguage] = useState(initialLang); 
     const navigation = useNavigation();
-
     const t = (key) => translations[language]?.[key] || key;
+    
+    // ✅ (عكس المنطق الطبيعي بناءً على طلبك)
+    // الإنجليزي 'en' سيصبح RTL، والعربي 'ar' سيصبح LTR
+    const isCustomRTL = language === 'en'; 
     
     useFocusEffect(
         useCallback(() => {
@@ -75,9 +74,9 @@ const AboutScreen = () => {
                     const savedTheme = await AsyncStorage.getItem('isDarkMode');
                     setTheme(savedTheme === 'true' ? darkTheme : lightTheme);
                     const savedLang = await AsyncStorage.getItem('appLanguage');
-                    const currentLang = savedLang || 'ar';
-                    setLanguage(currentLang);
-                    setIsRTL(currentLang === 'ar');
+                    if (savedLang) {
+                        setLanguage(savedLang);
+                    }
                 } catch (error) { console.error("Failed to load settings from storage", error); }
             };
             loadSettings();
@@ -89,72 +88,76 @@ const AboutScreen = () => {
         { icon: 'food-croissant', title: t('feature2Title'), description: t('feature2Desc') },
         { icon: 'chart-line', title: t('feature3Title'), description: t('feature3Desc') },
         { icon: 'bell-ring-outline', title: t('feature4Title'), description: t('feature4Desc') },
-    ], [language, t]); // ✅ تم إضافة t للمصفوفة عشان الترجمة تتحدث صح
+    ], [language, t]);
 
     const contactEmail = 'optifitstudio0@gmail.com';
     const handleEmailPress = () => { Linking.openURL(`mailto:${contactEmail}`); };
 
-    // ✅ تم تحويل الـ styles object إلى StyleSheet.create لتجنب الأخطاء وتحسين الأداء
-    const styles = getStyles(theme, isRTL);
-
     return (
-        <SafeAreaView style={styles.rootContainer}>
+        <SafeAreaView style={styles.rootContainer(theme)}>
             <StatusBar barStyle={theme.statusBar} backgroundColor={theme.background} />
             
-            <View style={styles.customHeader}>
+            {/* تم تمرير isCustomRTL للستايل */}
+            <View style={styles.customHeader(theme, isCustomRTL)}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-                    <Icon name={isRTL ? "arrow-right" : "arrow-left"} size={28} color={theme.textPrimary} />
+                    {/* إذا كان الوضع RTL (إنجليزي هنا)، السهم يمين، والعكس */}
+                    <Icon name={isCustomRTL ? "arrow-left" : "arrow-right"} size={28} color={theme.textPrimary} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>{t('headerTitle')}</Text>
-                <View style={{ width: 40 }} />
+                <Text style={styles.headerTitle(theme)}>{t('headerTitle')}</Text>
+                <View style={{ width: 40 }} /> 
             </View>
 
             <ScrollView contentContainerStyle={styles.container}>
                 <View style={styles.header}>
-                    <Text style={styles.appName}>{t('appName')}</Text>
-                    <Text style={styles.slogan}>{t('slogan')}</Text>
+                    <Text style={styles.appName(theme)}>{t('appName')}</Text>
+                    <Text style={styles.slogan(theme)}>{t('slogan')}</Text>
                 </View>
 
-                <View style={styles.card}>
-                    <Text style={styles.sectionTitle}>{t('aboutUsTitle')}</Text>
-                    <Text style={styles.sectionText}>{t('aboutUsText')}</Text>
+                <View style={styles.card(theme)}>
+                    <Text style={styles.sectionTitle(theme, isCustomRTL)}>{t('aboutUsTitle')}</Text>
+                    <Text style={styles.sectionText(theme, isCustomRTL)}>{t('aboutUsText')}</Text>
                 </View>
-                <View style={styles.card}>
-                    <Text style={styles.sectionTitle}>{t('featuresTitle')}</Text>
+
+                <View style={styles.card(theme)}>
+                    <Text style={styles.sectionTitle(theme, isCustomRTL)}>{t('featuresTitle')}</Text>
                     {features.map((feature, index) => (
-                        <View key={index} style={styles.featureItem}>
-                            <Icon name={feature.icon} size={35} color={theme.primary} style={styles.featureIcon} />
-                            <View style={styles.featureTextContainer}>
-                                <Text style={styles.featureTitle}>{feature.title}</Text>
-                                <Text style={styles.featureDescription}>{feature.description}</Text>
+                        <View key={index} style={styles.featureItem(isCustomRTL)}>
+                            <Icon name={feature.icon} size={35} color={theme.primary} style={styles.featureIcon(isCustomRTL)} />
+                            <View style={styles.featureTextContainer(isCustomRTL)}>
+                                <Text style={styles.featureTitle(theme, isCustomRTL)}>{feature.title}</Text>
+                                <Text style={styles.featureDescription(theme, isCustomRTL)}>{feature.description}</Text>
                             </View>
                         </View>
                     ))}
                 </View>
-                <View style={styles.card}>
-                    <Text style={styles.sectionTitle}>{t('visionTitle')}</Text>
-                    <Text style={styles.sectionText}>{t('visionText')}</Text>
+
+                <View style={styles.card(theme)}>
+                    <Text style={styles.sectionTitle(theme, isCustomRTL)}>{t('visionTitle')}</Text>
+                    <Text style={styles.sectionText(theme, isCustomRTL)}>{t('visionText')}</Text>
                 </View>
-                <View style={styles.card}>
-                    <Text style={styles.sectionTitle}>{t('contactTitle')}</Text>
-                    <Text style={styles.sectionText}>{t('contactIntro')}</Text>
-                    <TouchableOpacity style={styles.contactItem} onPress={handleEmailPress}>
+
+                <View style={styles.card(theme)}>
+                    <Text style={styles.sectionTitle(theme, isCustomRTL)}>{t('contactTitle')}</Text>
+                    <Text style={styles.sectionText(theme, isCustomRTL)}>{t('contactIntro')}</Text>
+                    <TouchableOpacity style={styles.contactItem(theme, isCustomRTL)} onPress={handleEmailPress}>
                         <Icon name="email-outline" size={24} color={theme.primary} />
-                        <Text style={styles.contactText}>{contactEmail}</Text>
+                        <Text style={styles.contactText(theme)}>{contactEmail}</Text>
                     </TouchableOpacity>
                 </View>
-                <Text style={styles.footerText}>{t('version')}</Text>
+                <Text style={styles.footerText(theme)}>{t('version')}</Text>
             </ScrollView>
         </SafeAreaView>
     );
 };
 
-// --- STYLES ---
-// ✅ تم استخدام StyleSheet.create وهي الطريقة الصحيحة
-const getStyles = (theme, isRTL) => StyleSheet.create({
-    rootContainer: { flex: 1, backgroundColor: theme.background },
+// ✅ Styles معدلة لتعكس الاتجاه حسب الطلب (isCustomRTL)
+// إذا isRTL = true (إنجليزي): نستخدم row-reverse و text-align: right
+// إذا isRTL = false (عربي): نستخدم row و text-align: left
+const styles = {
+    rootContainer: (theme) => ({ flex: 1, backgroundColor: theme.background }),
     container: { paddingHorizontal: 20, paddingBottom: 40 },
-    customHeader: {
+    
+    customHeader: (theme, isRTL) => ({
         flexDirection: isRTL ? 'row-reverse' : 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -162,23 +165,53 @@ const getStyles = (theme, isRTL) => StyleSheet.create({
         paddingTop: 10,
         paddingBottom: 10,
         backgroundColor: theme.background,
-    },
+    }),
     backButton: { padding: 5, width: 40, alignItems: 'center' },
-    headerTitle: { fontSize: 20, fontWeight: 'bold', color: theme.textPrimary },
+    headerTitle: (theme) => ({ fontSize: 20, fontWeight: 'bold', color: theme.textPrimary }),
     header: { alignItems: 'center', marginBottom: 30, marginTop: 10 },
-    appName: { fontSize: 32, fontWeight: 'bold', color: theme.textPrimary },
-    slogan: { fontSize: 16, color: theme.textSecondary, marginTop: 4 },
-    card: { backgroundColor: theme.card, borderRadius: 12, padding: 20, marginBottom: 20, elevation: 3 },
-    sectionTitle: { fontSize: 22, fontWeight: 'bold', color: theme.primary, marginBottom: 15, textAlign: isRTL ? 'right' : 'left' },
-    sectionText: { fontSize: 16, lineHeight: 24, color: theme.textSecondary, textAlign: isRTL ? 'right' : 'left' },
-    featureItem: { flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'flex-start', marginBottom: 20 },
-    featureIcon: { marginRight: isRTL ? 0 : 15, marginLeft: isRTL ? 15 : 0 },
-    featureTextContainer: { flex: 1 },
-    featureTitle: { fontSize: 17, fontWeight: 'bold', color: theme.textPrimary, textAlign: isRTL ? 'right' : 'left' },
-    featureDescription: { fontSize: 14, color: theme.textSecondary, marginTop: 4, lineHeight: 20, textAlign: isRTL ? 'right' : 'left' },
-    contactItem: { flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', marginTop: 20, backgroundColor: theme.contactBg, paddingVertical: 10, paddingHorizontal: 15, borderRadius: 8, alignSelf: isRTL ? 'flex-end' : 'flex-start' },
-    contactText: { fontSize: 16, color: theme.contactText, fontWeight: '500', marginHorizontal: 10 },
-    footerText: { textAlign: 'center', color: theme.textSecondary, marginTop: 20, fontSize: 12 },
-});
+    appName: (theme) => ({ fontSize: 32, fontWeight: 'bold', color: theme.textPrimary }),
+    slogan: (theme) => ({ fontSize: 16, color: theme.textSecondary, marginTop: 4 }),
+    card: (theme) => ({ backgroundColor: theme.card, borderRadius: 12, padding: 20, marginBottom: 20, elevation: 3 }),
+    
+    sectionTitle: (theme, isRTL) => ({ 
+        fontSize: 22, fontWeight: 'bold', color: theme.primary, marginBottom: 15, 
+        textAlign: isRTL ? 'right' : 'left' 
+    }),
+    sectionText: (theme, isRTL) => ({ 
+        fontSize: 16, lineHeight: 24, color: theme.textSecondary, 
+        textAlign: isRTL ? 'right' : 'left' 
+    }),
+    
+    featureItem: (isRTL) => ({ 
+        flexDirection: isRTL ? 'row-reverse' : 'row', 
+        alignItems: 'flex-start', marginBottom: 20 
+    }),
+    featureIcon: (isRTL) => ({ 
+        // في وضع الـ row-reverse (إنجليزي)، الأيقونة يمين، الهامش يسارها
+        marginLeft: isRTL ? 15 : 0,
+        // في وضع الـ row (عربي)، الأيقونة يسار، الهامش يمينها
+        marginRight: isRTL ? 0 : 15 
+    }),
+    featureTextContainer: (isRTL) => ({ 
+        flex: 1, 
+        alignItems: isRTL ? 'flex-end' : 'flex-start' 
+    }),
+    featureTitle: (theme, isRTL) => ({ 
+        fontSize: 17, fontWeight: 'bold', color: theme.textPrimary, 
+        textAlign: isRTL ? 'right' : 'left' 
+    }),
+    featureDescription: (theme, isRTL) => ({ 
+        fontSize: 14, color: theme.textSecondary, marginTop: 4, lineHeight: 20, 
+        textAlign: isRTL ? 'right' : 'left' 
+    }),
+    
+    contactItem: (theme, isRTL) => ({ 
+        flexDirection: isRTL ? 'row-reverse' : 'row',
+        alignItems: 'center', marginTop: 20, backgroundColor: theme.contactBg, paddingVertical: 10, paddingHorizontal: 15, borderRadius: 8, 
+        alignSelf: isRTL ? 'flex-end' : 'flex-start'
+    }),
+    contactText: (theme) => ({ fontSize: 16, color: theme.contactText, fontWeight: '500', marginHorizontal: 10 }),
+    footerText: (theme) => ({ textAlign: 'center', color: theme.textSecondary, marginTop: 20, fontSize: 12 }),
+};
 
 export default AboutScreen;
