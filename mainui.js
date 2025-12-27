@@ -6,7 +6,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
     StyleSheet, View, Text, ScrollView, SafeAreaView, TouchableOpacity, 
     Dimensions, Image, Platform, TextInput, FlatList, ActivityIndicator, 
-    Alert, Modal, StatusBar, I18nManager, BackHandler
+    Alert, Modal, StatusBar, I18nManager, BackHandler, InteractionManager
 } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useFocusEffect, useNavigationState, getFocusedRouteNameFromRoute } from '@react-navigation/native';
@@ -70,6 +70,7 @@ TaskManager.defineTask(STEPS_NOTIFICATION_TASK, async () => {
         const savedGoal = await AsyncStorage.getItem('stepsGoal');
         const goal = savedGoal ? parseInt(savedGoal, 10) : 10000;
 
+        // محاولة جلب الخطوات في الخلفية
         let currentSteps = 0;
         const isAvailable = await Pedometer.isAvailableAsync();
         if (isAvailable) {
@@ -431,7 +432,7 @@ const SmallWorkoutCard = ({ totalCaloriesBurned = 0, onPress, theme, t, language
     ); 
 };
 
-// --- START: كارت الخطوات (تم التحديث - بدون InteractionManager) ---
+// --- START: كارت الخطوات (تم التحديث - حل مشكلة الرقم 0 نهائياً) ---
 const SmallStepsCard = ({ navigation, theme, t, language }) => { 
     const [status, setStatus] = useState('checking'); 
     const [currentStepCount, setCurrentStepCount] = useState(0);
@@ -479,6 +480,7 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
                     
                     if (isActive && res && res.length > 0) {
                         let maxSteps = 0;
+                        // نلف على كل المصادر وناخد أكبر رقم (زي صفحة التقارير)
                         res.forEach(source => {
                             if (source.steps) {
                                 source.steps.forEach(step => {
@@ -486,6 +488,8 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
                                 });
                             }
                         });
+                        
+                        // تحديث الرقم (حتى لو صفر عشان يفضل يتابع)
                         setCurrentStepCount(maxSteps);
                     }
                 } 
@@ -498,7 +502,7 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
 
         // حذفنا InteractionManager هنا عشان التحديث يشتغل فوراً وميتأخرش
         syncData();
-        intervalId = setInterval(syncData, 2000); // تحديث كل ثانيتين
+        intervalId = setInterval(syncData, 1000); // تحديث كل ثانية واحدة لضمان السرعة
 
         return () => { 
             isActive = false; 
