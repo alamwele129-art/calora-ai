@@ -432,7 +432,7 @@ const SmallWorkoutCard = ({ totalCaloriesBurned = 0, onPress, theme, t, language
     ); 
 };
 
-// --- START: كارت الخطوات (تم التحديث - حل مشكلة الرقم 0) ---
+// --- START: كارت الخطوات (تم التحديث - حل مشكلة الرقم 0 + التحديث المستمر) ---
 const SmallStepsCard = ({ navigation, theme, t, language }) => { 
     const [status, setStatus] = useState('checking'); 
     const [currentStepCount, setCurrentStepCount] = useState(0);
@@ -448,7 +448,7 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
                 const savedGoal = await AsyncStorage.getItem('stepsGoal');
                 if (isActive && savedGoal) setStepsGoal(parseInt(savedGoal, 10));
 
-                // 2. التحقق من حالة الاتصال
+                // 2. التحقق من الاتصال
                 const storedConnectionStatus = await AsyncStorage.getItem('isGoogleFitConnected');
                 let isAuthorized = false;
 
@@ -463,7 +463,7 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
 
                 if (isActive) setStatus('connected');
 
-                // 3. جلب البيانات وحساب الخطوات (نفس منطق صفحة التقارير)
+                // 3. جلب البيانات (نفس منطق صفحة التقارير بالمللي)
                 if (isAuthorized) {
                     const now = new Date();
                     const startOfDay = new Date();
@@ -479,30 +479,32 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
                     const res = await GoogleFit.getDailyStepCountSamples(opt);
                     
                     if (isActive && res && res.length > 0) {
-                        // === التعديل الجوهري هنا ===
-                        // بدلاً من البحث عن estimated_steps فقط، نأخذ أكبر قيمة موجودة في أي مصدر
-                        // ده نفس اللي بيحصل في صفحة التقارير بالظبط
-                        let finalSteps = 0;
+                        let maxSteps = 0;
+                        // نلف على كل المصادر وناخد أكبر رقم (زي صفحة التقارير)
                         res.forEach(source => {
                             if (source.steps) {
                                 source.steps.forEach(step => {
-                                    if (step.value > finalSteps) finalSteps = step.value;
+                                    if (step.value > maxSteps) maxSteps = step.value;
                                 });
                             }
                         });
-                        setCurrentStepCount(finalSteps);
+                        
+                        // تحديث الرقم
+                        setCurrentStepCount(maxSteps);
                     }
                 } 
 
             } catch (error) {
-                console.log("Steps sync safely handled:", error);
+                console.log("Steps sync handled:", error);
                 if (isActive) setStatus('disconnected');
             }
         };
 
+        // تشغيل التحديث فوراً بعد تحميل الصفحة
         InteractionManager.runAfterInteractions(() => {
             syncData();
-            intervalId = setInterval(syncData, 5000);
+            // تكرار التحديث كل 2 ثانية لضمان الـ Real-time
+            intervalId = setInterval(syncData, 2000);
         });
 
         return () => { 
@@ -560,6 +562,7 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
         <TouchableOpacity style={styles.smallCard(theme)} onPress={() => navigation.navigate('Steps')}>
             <View style={[styles.smallCardHeader, { flexDirection: getFlexDirection(language) }]}>
                 <View style={[styles.smallCardIconContainer(theme)]}>
+                    {/* أيقونة الهيدر: راجل بيمشي (ثابتة) */}
                     <MaterialCommunityIcons name="walk" size={20} color={theme.primary} />
                 </View>
                 <Text style={[styles.smallCardTitle(theme), { marginStart: 8 }]}>{t('steps')}</Text>
