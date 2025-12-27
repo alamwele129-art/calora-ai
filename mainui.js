@@ -432,9 +432,9 @@ const SmallWorkoutCard = ({ totalCaloriesBurned = 0, onPress, theme, t, language
     ); 
 };
 
-// --- START: كارت الخطوات (تم التحديث لضمان التحديث الفوري + الأيقونات المطلوبة) ---
+// --- START: كارت الخطوات (تم التحديث - حل مشكلة الرقم 0) ---
 const SmallStepsCard = ({ navigation, theme, t, language }) => { 
-    const [status, setStatus] = useState('checking'); // 'checking' | 'connected' | 'disconnected'
+    const [status, setStatus] = useState('checking'); 
     const [currentStepCount, setCurrentStepCount] = useState(0);
     const [stepsGoal, setStepsGoal] = useState(10000);
 
@@ -442,34 +442,28 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
         let isActive = true;
         let intervalId = null;
 
-        // دالة المزامنة والتحقق
         const syncData = async () => {
             try {
                 // 1. جلب الهدف
                 const savedGoal = await AsyncStorage.getItem('stepsGoal');
                 if (isActive && savedGoal) setStepsGoal(parseInt(savedGoal, 10));
 
-                // 2. التحقق من صلاحيات Google Fit
-                // ملاحظة: بنشيك على Storage وكمان على الصلاحية الفعلية
+                // 2. التحقق من حالة الاتصال
                 const storedConnectionStatus = await AsyncStorage.getItem('isGoogleFitConnected');
                 let isAuthorized = false;
 
                 if (GoogleFit) {
-                    try {
-                        isAuthorized = await GoogleFit.checkIsAuthorized();
-                    } catch (e) { console.log("Auth check error", e); }
+                    try { isAuthorized = await GoogleFit.checkIsAuthorized(); } catch (e) {}
                 }
 
-                // لو مش متصل لا في الذاكرة ولا واخد صلاحية -> افصل
                 if (storedConnectionStatus !== 'true' && !isAuthorized) {
                     if (isActive) setStatus('disconnected');
                     return; 
                 }
 
-                // لو متصل (سواء من الذاكرة أو الصلاحية شغالة)
                 if (isActive) setStatus('connected');
 
-                // نبدأ جلب البيانات
+                // 3. جلب البيانات وحساب الخطوات (نفس منطق صفحة التقارير)
                 if (isAuthorized) {
                     const now = new Date();
                     const startOfDay = new Date();
@@ -485,20 +479,17 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
                     const res = await GoogleFit.getDailyStepCountSamples(opt);
                     
                     if (isActive && res && res.length > 0) {
-                        const estimatedSource = res.find(source => source.source === "com.google.android.gms:estimated_steps");
+                        // === التعديل الجوهري هنا ===
+                        // بدلاً من البحث عن estimated_steps فقط، نأخذ أكبر قيمة موجودة في أي مصدر
+                        // ده نفس اللي بيحصل في صفحة التقارير بالظبط
                         let finalSteps = 0;
-
-                        if (estimatedSource && estimatedSource.steps.length > 0) {
-                            finalSteps = estimatedSource.steps[0].value;
-                        } else {
-                            res.forEach(source => {
-                                if (source.steps) {
-                                    source.steps.forEach(step => { 
-                                        if (step.value > finalSteps) finalSteps = step.value; 
-                                    });
-                                }
-                            });
-                        }
+                        res.forEach(source => {
+                            if (source.steps) {
+                                source.steps.forEach(step => {
+                                    if (step.value > finalSteps) finalSteps = step.value;
+                                });
+                            }
+                        });
                         setCurrentStepCount(finalSteps);
                     }
                 } 
@@ -509,11 +500,9 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
             }
         };
 
-        // استخدام InteractionManager لضمان ان الصفحة حملت بالكامل قبل الفحص
-        // ده بيحل مشكلة قراءة البيانات القديمة
         InteractionManager.runAfterInteractions(() => {
             syncData();
-            intervalId = setInterval(syncData, 5000); // تحديث أسرع (كل 5 ثواني)
+            intervalId = setInterval(syncData, 5000);
         });
 
         return () => { 
@@ -525,13 +514,11 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
     // حساب النسبة
     const progress = stepsGoal > 0 ? Math.min(currentStepCount / stepsGoal, 1) : 0;
 
-    // دالة العرض
     const renderContent = () => {
         if (status === 'checking') {
             return <ActivityIndicator size="small" color={theme.primary} style={{ marginTop: 20 }} />;
         }
 
-        // إذا كان غير متصل، يظهر النص وأيقونة القلب (Google Fit) كما طلبت في التعليق الأخير
         if (status === 'disconnected') {
             return (
                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -543,7 +530,6 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
             );
         }
 
-        // إذا تم الاتصال بنجاح: تظهر الدائرة والهدف
         return (
             <View style={styles.stepsCardContent}>
                 <View style={styles.stepsCardCircleContainer}>
@@ -574,12 +560,7 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
         <TouchableOpacity style={styles.smallCard(theme)} onPress={() => navigation.navigate('Steps')}>
             <View style={[styles.smallCardHeader, { flexDirection: getFlexDirection(language) }]}>
                 <View style={[styles.smallCardIconContainer(theme)]}>
-                    {/* أيقونة الهيدر هتفضل "راجل بيمشي" زي ما طلبت */}
-                    <MaterialCommunityIcons 
-                        name="walk"
-                        size={20} 
-                        color={theme.primary} 
-                    />
+                    <MaterialCommunityIcons name="walk" size={20} color={theme.primary} />
                 </View>
                 <Text style={[styles.smallCardTitle(theme), { marginStart: 8 }]}>{t('steps')}</Text>
             </View>
