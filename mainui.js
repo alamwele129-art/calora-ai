@@ -6,7 +6,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
     StyleSheet, View, Text, ScrollView, SafeAreaView, TouchableOpacity, 
     Dimensions, Image, Platform, TextInput, FlatList, ActivityIndicator, 
-    Alert, Modal, StatusBar, I18nManager, BackHandler, InteractionManager
+    Alert, Modal, StatusBar, I18nManager, BackHandler
 } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useFocusEffect, useNavigationState, getFocusedRouteNameFromRoute } from '@react-navigation/native';
@@ -70,7 +70,6 @@ TaskManager.defineTask(STEPS_NOTIFICATION_TASK, async () => {
         const savedGoal = await AsyncStorage.getItem('stepsGoal');
         const goal = savedGoal ? parseInt(savedGoal, 10) : 10000;
 
-        // محاولة جلب الخطوات في الخلفية
         let currentSteps = 0;
         const isAvailable = await Pedometer.isAvailableAsync();
         if (isAvailable) {
@@ -432,7 +431,7 @@ const SmallWorkoutCard = ({ totalCaloriesBurned = 0, onPress, theme, t, language
     ); 
 };
 
-// --- START: كارت الخطوات (تم التحديث - حل مشكلة الرقم 0 + التحديث المستمر) ---
+// --- START: كارت الخطوات (تم التحديث - بدون InteractionManager) ---
 const SmallStepsCard = ({ navigation, theme, t, language }) => { 
     const [status, setStatus] = useState('checking'); 
     const [currentStepCount, setCurrentStepCount] = useState(0);
@@ -480,7 +479,6 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
                     
                     if (isActive && res && res.length > 0) {
                         let maxSteps = 0;
-                        // نلف على كل المصادر وناخد أكبر رقم (زي صفحة التقارير)
                         res.forEach(source => {
                             if (source.steps) {
                                 source.steps.forEach(step => {
@@ -488,8 +486,6 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
                                 });
                             }
                         });
-                        
-                        // تحديث الرقم
                         setCurrentStepCount(maxSteps);
                     }
                 } 
@@ -500,12 +496,9 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
             }
         };
 
-        // تشغيل التحديث فوراً بعد تحميل الصفحة
-        InteractionManager.runAfterInteractions(() => {
-            syncData();
-            // تكرار التحديث كل 2 ثانية لضمان الـ Real-time
-            intervalId = setInterval(syncData, 2000);
-        });
+        // حذفنا InteractionManager هنا عشان التحديث يشتغل فوراً وميتأخرش
+        syncData();
+        intervalId = setInterval(syncData, 2000); // تحديث كل ثانيتين
 
         return () => { 
             isActive = false; 
@@ -513,7 +506,6 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
         };
     }, []));
 
-    // حساب النسبة
     const progress = stepsGoal > 0 ? Math.min(currentStepCount / stepsGoal, 1) : 0;
 
     const renderContent = () => {
@@ -562,7 +554,6 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
         <TouchableOpacity style={styles.smallCard(theme)} onPress={() => navigation.navigate('Steps')}>
             <View style={[styles.smallCardHeader, { flexDirection: getFlexDirection(language) }]}>
                 <View style={[styles.smallCardIconContainer(theme)]}>
-                    {/* أيقونة الهيدر: راجل بيمشي (ثابتة) */}
                     <MaterialCommunityIcons name="walk" size={20} color={theme.primary} />
                 </View>
                 <Text style={[styles.smallCardTitle(theme), { marginStart: 8 }]}>{t('steps')}</Text>
