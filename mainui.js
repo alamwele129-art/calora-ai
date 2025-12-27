@@ -433,13 +433,13 @@ const SmallWorkoutCard = ({ totalCaloriesBurned = 0, onPress, theme, t, language
 
 // --- START: كارت الخطوات (تم التحديث - بدون InteractionManager) ---
 const SmallStepsCard = ({ navigation, theme, t, language }) => { 
-    const [status, setStatus] = useState('checking'); 
+    // بدأنا الحالة بـ disconnected عشان يظهر "غير متصل" علطول لحد ما يتأكد
+    const [status, setStatus] = useState('disconnected'); 
     const [currentStepCount, setCurrentStepCount] = useState(0);
     const [stepsGoal, setStepsGoal] = useState(10000);
 
     useFocusEffect(useCallback(() => {
         let isActive = true;
-        let intervalId = null;
 
         const syncData = async () => {
             try {
@@ -447,22 +447,32 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
                 const savedGoal = await AsyncStorage.getItem('stepsGoal');
                 if (isActive && savedGoal) setStepsGoal(parseInt(savedGoal, 10));
 
-                // 2. التحقق من الاتصال
+                // 2. التحقق السريع من الاتصال
                 const storedConnectionStatus = await AsyncStorage.getItem('isGoogleFitConnected');
                 let isAuthorized = false;
 
                 if (GoogleFit) {
-                    try { isAuthorized = await GoogleFit.checkIsAuthorized(); } catch (e) {}
+                    try { 
+                        // فحص سريع بدون انتظار طويل
+                        isAuthorized = GoogleFit.isAuthorized; 
+                        if (!isAuthorized) {
+                             // محاولة تحديث الحالة لو هو مش عارف
+                             await GoogleFit.checkIsAuthorized();
+                             isAuthorized = GoogleFit.isAuthorized;
+                        }
+                    } catch (e) {}
                 }
 
+                // لو مش متصل في الذاكرة ولا واخد صلاحية، خليك disconnected
                 if (storedConnectionStatus !== 'true' && !isAuthorized) {
                     if (isActive) setStatus('disconnected');
                     return; 
                 }
 
+                // لو وصلنا هنا يبقى متصل، نعرض الدائرة
                 if (isActive) setStatus('connected');
 
-                // 3. جلب البيانات (نفس منطق صفحة التقارير بالمللي)
+                // 3. جلب الخطوات في الخلفية
                 if (isAuthorized) {
                     const now = new Date();
                     const startOfDay = new Date();
@@ -478,73 +488,78 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
                     const res = await GoogleFit.getDailyStepCountSamples(opt);
                     
                     if (isActive && res && res.length > 0) {
-                        let maxSteps = 0;
-                        res.forEach(source => {
-                            if (source.steps) {
-                                source.steps.forEach(step => {
-                                    if (step.value > maxSteps) maxSteps = step.value;
-                                });
-                            }
-                        });
-                        setCurrentStepCount(maxSteps);
+                        // نحاول نجيب المصدر الرسمي المدمج
+                        const mergedSource = res.find(s => s.source === 'com.google.android.gms:estimated_steps');
+                        let stepsVal = 0;
+                        
+                        if (mergedSource && mergedSource.steps.length > 0) {
+                            stepsVal = mergedSource.steps[0].value;
+                        } else {
+                            // لو مفيش، ناخد أكبر قيمة متاحة
+                            res.forEach(source => {
+                                if (source.steps) {
+                                    source.steps.forEach(step => {
+                                        if (step.value > stepsVal) stepsVal = step.value;
+                                    });
+                                }
+                            });
+                        }
+                        setCurrentStepCount(stepsVal);
                     }
                 } 
-
             } catch (error) {
                 console.log("Steps sync handled:", error);
                 if (isActive) setStatus('disconnected');
             }
         };
 
-        // حذفنا InteractionManager هنا عشان التحديث يشتغل فوراً وميتأخرش
         syncData();
-        intervalId = setInterval(syncData, 1000); // تحديث كل ثانية واحدة
+        // تحديث هادي كل 5 ثواني
+        const intervalId = setInterval(syncData, 5000); 
 
         return () => { 
             isActive = false; 
-            if (intervalId) clearInterval(intervalId);
+            clearInterval(intervalId);
         };
     }, []));
 
     const progress = stepsGoal > 0 ? Math.min(currentStepCount / stepsGoal, 1) : 0;
 
     const renderContent = () => {
-        if (status === 'checking') {
-            return <ActivityIndicator size="small" color={theme.primary} style={{ marginTop: 20 }} />;
-        }
-
-        if (status === 'disconnected') {
+        // لو متصل اعرض الدائرة والخطوات
+        if (status === 'connected') {
             return (
-                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                    <MaterialCommunityIcons name="google-fit" size={32} color={theme.disabled} style={{ marginBottom: 5 }} />
-                    <Text style={[styles.smallCardValue(theme), { fontSize: 16, color: theme.textSecondary }]}>
-                        {t('not_connected')}
+                <View style={styles.stepsCardContent}>
+                    <View style={styles.stepsCardCircleContainer}>
+                        <Progress.Circle 
+                            size={80} 
+                            progress={progress} 
+                            showsText={false} 
+                            color={theme.primary} 
+                            unfilledColor={theme.progressUnfilled} 
+                            borderWidth={0} 
+                            thickness={8} 
+                            strokeCap="round"
+                        />
+                        <View style={styles.stepsCardTextContainer}>
+                            <Text style={styles.stepsCardCountText(theme)} numberOfLines={1}>
+                                {currentStepCount.toLocaleString('en-US')}
+                            </Text>
+                        </View>
+                    </View>
+                    <Text style={styles.stepsCardGoalText(theme)}>
+                        {t('goal')}{stepsGoal.toLocaleString('en-US')}
                     </Text>
                 </View>
             );
         }
 
+        // في أي حالة تانية (لسه بيحمل أو مش متصل) اعرض "غير متصل" علطول من غير تحميل
         return (
-            <View style={styles.stepsCardContent}>
-                <View style={styles.stepsCardCircleContainer}>
-                    <Progress.Circle 
-                        size={80} 
-                        progress={progress} 
-                        showsText={false} 
-                        color={theme.primary} 
-                        unfilledColor={theme.progressUnfilled} 
-                        borderWidth={0} 
-                        thickness={8} 
-                        strokeCap="round"
-                    />
-                    <View style={styles.stepsCardTextContainer}>
-                        <Text style={styles.stepsCardCountText(theme)} numberOfLines={1}>
-                            {currentStepCount.toLocaleString('en-US')}
-                        </Text>
-                    </View>
-                </View>
-                <Text style={styles.stepsCardGoalText(theme)}>
-                    {t('goal')}{stepsGoal.toLocaleString('en-US')}
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                <MaterialCommunityIcons name="google-fit" size={32} color={theme.disabled} style={{ marginBottom: 5 }} />
+                <Text style={[styles.smallCardValue(theme), { fontSize: 16, color: theme.textSecondary }]}>
+                    {t('not_connected')}
                 </Text>
             </View>
         );
