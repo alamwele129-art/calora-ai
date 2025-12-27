@@ -432,9 +432,9 @@ const SmallWorkoutCard = ({ totalCaloriesBurned = 0, onPress, theme, t, language
     ); 
 };
 
-// --- START: كارت الخطوات (تم التحديث لضمان ثبات أيقونة المشي) ---
+// --- START: كارت الخطوات (تم التحديث لضمان التحديث الفوري + الأيقونات المطلوبة) ---
 const SmallStepsCard = ({ navigation, theme, t, language }) => { 
-    const [status, setStatus] = useState('checking'); 
+    const [status, setStatus] = useState('checking'); // 'checking' | 'connected' | 'disconnected'
     const [currentStepCount, setCurrentStepCount] = useState(0);
     const [stepsGoal, setStepsGoal] = useState(10000);
 
@@ -442,28 +442,35 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
         let isActive = true;
         let intervalId = null;
 
+        // دالة المزامنة والتحقق
         const syncData = async () => {
             try {
+                // 1. جلب الهدف
                 const savedGoal = await AsyncStorage.getItem('stepsGoal');
                 if (isActive && savedGoal) setStepsGoal(parseInt(savedGoal, 10));
 
+                // 2. التحقق من صلاحيات Google Fit
+                // ملاحظة: بنشيك على Storage وكمان على الصلاحية الفعلية
                 const storedConnectionStatus = await AsyncStorage.getItem('isGoogleFitConnected');
-                
-                if (storedConnectionStatus !== 'true') {
+                let isAuthorized = false;
+
+                if (GoogleFit) {
+                    try {
+                        isAuthorized = await GoogleFit.checkIsAuthorized();
+                    } catch (e) { console.log("Auth check error", e); }
+                }
+
+                // لو مش متصل لا في الذاكرة ولا واخد صلاحية -> افصل
+                if (storedConnectionStatus !== 'true' && !isAuthorized) {
                     if (isActive) setStatus('disconnected');
                     return; 
                 }
 
-                if (!GoogleFit) {
-                    if (isActive) setStatus('disconnected');
-                    return; 
-                }
+                // لو متصل (سواء من الذاكرة أو الصلاحية شغالة)
+                if (isActive) setStatus('connected');
 
-                const isAuthorized = await GoogleFit.checkIsAuthorized();
-
+                // نبدأ جلب البيانات
                 if (isAuthorized) {
-                    if (isActive) setStatus('connected');
-
                     const now = new Date();
                     const startOfDay = new Date();
                     startOfDay.setHours(0, 0, 0, 0);
@@ -494,9 +501,7 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
                         }
                         setCurrentStepCount(finalSteps);
                     }
-                } else {
-                    if (isActive) setStatus('disconnected');
-                }
+                } 
 
             } catch (error) {
                 console.log("Steps sync safely handled:", error);
@@ -504,8 +509,12 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
             }
         };
 
-        syncData();
-        intervalId = setInterval(syncData, 10000);
+        // استخدام InteractionManager لضمان ان الصفحة حملت بالكامل قبل الفحص
+        // ده بيحل مشكلة قراءة البيانات القديمة
+        InteractionManager.runAfterInteractions(() => {
+            syncData();
+            intervalId = setInterval(syncData, 5000); // تحديث أسرع (كل 5 ثواني)
+        });
 
         return () => { 
             isActive = false; 
@@ -513,15 +522,16 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
         };
     }, []));
 
+    // حساب النسبة
     const progress = stepsGoal > 0 ? Math.min(currentStepCount / stepsGoal, 1) : 0;
 
+    // دالة العرض
     const renderContent = () => {
         if (status === 'checking') {
             return <ActivityIndicator size="small" color={theme.primary} style={{ marginTop: 20 }} />;
         }
 
-        // --- التعديل هنا ---
-        // في حالة عدم الاتصال: الأيقونة الكبيرة هتبقى (قلب/Google Fit)
+        // إذا كان غير متصل، يظهر النص وأيقونة القلب (Google Fit) كما طلبت في التعليق الأخير
         if (status === 'disconnected') {
             return (
                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -533,6 +543,7 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
             );
         }
 
+        // إذا تم الاتصال بنجاح: تظهر الدائرة والهدف
         return (
             <View style={styles.stepsCardContent}>
                 <View style={styles.stepsCardCircleContainer}>
