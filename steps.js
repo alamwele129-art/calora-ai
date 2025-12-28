@@ -4,7 +4,8 @@ import {
     ActivityIndicator, Modal, TextInput, StatusBar,
     Platform, PermissionsAndroid, AppState, InteractionManager,
     I18nManager,
-    DeviceEventEmitter 
+    DeviceEventEmitter,
+    Alert 
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons'; 
@@ -12,6 +13,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import GoogleFit, { Scopes } from 'react-native-google-fit'; 
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, useAnimatedProps } from 'react-native-reanimated';
 import Svg, { Circle, Path } from 'react-native-svg';
+// استدعاء حساس الخطوات للحركة اللحظية
+import { Pedometer } from 'expo-sensors';
 
 const STEP_LENGTH_KM = 0.000762;
 const CALORIES_PER_STEP = 0.04;
@@ -99,17 +102,14 @@ const StepsScreen = () => {
     const [loading, setLoading] = useState(true);
     const [isGoogleFitConnected, setIsGoogleFitConnected] = useState(false); 
     
-    // متغيرات المودال الجديدة
     const [isPromptVisible, setPromptVisible] = useState(false);
-    const [tempGoalInput, setTempGoalInput] = useState(''); // لتخزين الرقم أثناء الكتابة
+    const [tempGoalInput, setTempGoalInput] = useState(''); 
 
     const [selectedPeriod, setSelectedPeriod] = useState('week');
-    
     const [language, setLanguage] = useState('en');
     const [selectedBarIndex, setSelectedBarIndex] = useState(null);
 
     const isRTL = language === 'en'; 
-
     const t = (key) => translations[language]?.[key] || translations['en'][key] || key;
 
     useLayoutEffect(() => {
@@ -128,19 +128,30 @@ const StepsScreen = () => {
         isFetchingRef.current = true;
 
         try {
+            // التحقق من الاتصال الحقيقي
             const storedConnected = await AsyncStorage.getItem('isGoogleFitConnected');
-            if (storedConnected !== 'true' || Platform.OS !== 'android' || !GoogleFit) {
-                setIsGoogleFitConnected(false); setLoading(false); isFetchingRef.current = false; return;
+            const isAuth = await GoogleFit.checkIsAuthorized();
+
+            if (!isAuth && !isLiveUpdate) {
+                // لو مش متصل ومش بنعمل تحديث لايف، نظهر زرار الربط
+                // ممكن نحاول نعمل Connect اوتوماتيك مرة واحدة لو حابب
+                if (storedConnected === 'true') {
+                   // لو كان متسجل انه متصل قبل كده، نحاول نعمل Reconnect
+                   try { await GoogleFit.authorize({ scopes: [Scopes.FITNESS_ACTIVITY_READ, Scopes.FITNESS_ACTIVITY_WRITE, Scopes.FITNESS_BODY_READ] }); } catch(e){}
+                }
             }
 
-            if (!isLiveUpdate) {
-                const isAuth = await GoogleFit.checkIsAuthorized();
-                if (!isAuth) {
-                    try { await GoogleFit.authorize({ scopes: [Scopes.FITNESS_ACTIVITY_READ, Scopes.FITNESS_ACTIVITY_WRITE, Scopes.FITNESS_BODY_READ] }); } catch(e){}
-                }
-                setIsGoogleFitConnected(true);
+            // تحديث حالة الاتصال بناءً على النتيجة الحقيقية
+            const finalAuthStatus = await GoogleFit.checkIsAuthorized();
+            setIsGoogleFitConnected(finalAuthStatus);
+
+            if (!finalAuthStatus) {
+                setLoading(false);
+                isFetchingRef.current = false;
+                return; // نوقف هنا عشان يظهر زرار الربط
             }
             
+            // لو متصل، نكمل جلب البيانات
             const now = new Date();
             const startOfDay = new Date();
             startOfDay.setHours(0,0,0,0);
@@ -155,7 +166,9 @@ const StepsScreen = () => {
                         source.steps.forEach(step => { if (step.value > maxSteps) maxSteps = step.value; });
                     }
                 });
-                setDisplaySteps(maxSteps);
+                // نحدث الخطوات فقط لو القيمة من جوجل أكبر من اللي عندنا
+                // أو لو لسه فاتحين التطبيق (displaySteps == 0)
+                setDisplaySteps(prev => (maxSteps > prev || prev === 0) ? maxSteps : prev);
             }
 
             if (isLiveUpdate) {
@@ -187,10 +200,31 @@ const StepsScreen = () => {
             }
         } catch (globalError) {
             console.log("Error fetching fit data:", globalError);
+            setIsGoogleFitConnected(false); // لو حصل ايرور نعتبره مش متصل عشان يظهر الزرار
         } finally {
             setLoading(false);
             isFetchingRef.current = false;
         }
+    }, []);
+
+    // تفعيل الـ Pedometer للعد اللحظي بشرط الاتصال
+    useEffect(() => {
+        let pedometerSub;
+        const startPedometerTracking = async () => {
+            // نتأكد بس ان المستخدم متصل بجوجل فيت عشان منعدش خطوات وهمية
+            // او ممكن نسيبه يعد عادي حتى لو مش متصل بجوجل فيت كـ Feature اضافية
+            const isAvailable = await Pedometer.isAvailableAsync();
+            if (isAvailable) {
+                pedometerSub = Pedometer.watchStepCount(result => {
+                    if (result.steps > 0) {
+                        setDisplaySteps(prev => prev + result.steps);
+                    }
+                });
+            }
+        };
+
+        startPedometerTracking();
+        return () => { if (pedometerSub) pedometerSub.remove(); };
     }, []);
 
     useFocusEffect(
@@ -210,20 +244,24 @@ const StepsScreen = () => {
                 if (isMounted && savedGoal) setStepsGoal(parseInt(savedGoal, 10));
 
                 if (Platform.OS === 'android') {
-                    PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BODY_SENSORS);
+                    // طلب الصلاحيات البدنية للحساسات
+                    await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BODY_SENSORS);
                 }
 
                 InteractionManager.runAfterInteractions(() => {
                     if (isMounted) {
                         fetchGoogleFitData(true, false);
+                        
                         appStateSubscription = AppState.addEventListener('change', nextAppState => {
                             if (nextAppState === 'active' && isMounted) {
                                 fetchGoogleFitData(false, true);
                             }
                         });
+                        
+                        // تحديث الخلفية كل 15 ثانية لمزامنة جوجل فيت
                         intervalId = setInterval(() => {
                             if (isMounted) fetchGoogleFitData(false, true);
-                        }, 10000); 
+                        }, 15000); 
                     }
                 });
             };
@@ -255,6 +293,8 @@ const StepsScreen = () => {
                     setIsGoogleFitConnected(true);
                     await AsyncStorage.setItem('isGoogleFitConnected', 'true');
                     fetchGoogleFitData(true, false);
+                } else {
+                    Alert.alert(t('errorTitle'), t('permissionDeniedMsg'));
                 }
             }
         } catch (error) { console.warn("Auth Error:", error); }
@@ -308,13 +348,11 @@ const StepsScreen = () => {
         } catch (err) { }
     }, [selectedPeriod, rawStepsData, language]);
     
-    // دالة فتح المودال
     const handleOpenGoalModal = () => {
-        setTempGoalInput(''); // أو ممكن تخليها stepsGoal.toString() لو عايز الرقم الحالي يظهر
+        setTempGoalInput('');
         setPromptVisible(true);
     };
 
-    // دالة حفظ الهدف الجديد
     const handleSaveGoal = () => {
         const val = parseInt(tempGoalInput);
         if (val > 0) { 
@@ -341,6 +379,7 @@ const StepsScreen = () => {
     const progress = stepsGoal > 0 ? (displaySteps / stepsGoal) : 0;
 
     const renderTodaySummary = () => {
+        // هنا الجزء المهم: لو مش متصل ومش بنحمل، أظهر زرار الربط
         if (!isGoogleFitConnected && !loading) {
             return (
                 <View style={styles.errorContainer}>
@@ -380,7 +419,6 @@ const StepsScreen = () => {
         <SafeAreaView style={styles.modalPage(theme)}>
             <StatusBar barStyle={theme.statusBar} backgroundColor={theme.background} />
             
-            {/* --- بداية المودال المعدل --- */}
             <Modal visible={isPromptVisible} transparent animationType="fade" onRequestClose={() => setPromptVisible(false)}>
                 <View style={styles.modalOverlay(theme)}>
                     <View style={styles.promptContainer(theme)}>
@@ -391,8 +429,8 @@ const StepsScreen = () => {
                             placeholder="8000"
                             placeholderTextColor={theme.textSecondary}
                             value={tempGoalInput}
-                            onChangeText={setTempGoalInput} // حفظ الرقم أثناء الكتابة
-                            onSubmitEditing={handleSaveGoal} // حفظ عند الضغط على Enter في الكيبورد
+                            onChangeText={setTempGoalInput} 
+                            onSubmitEditing={handleSaveGoal} 
                         />
                         <View style={styles.promptButtonsContainer(isRTL)}>
                             <TouchableOpacity onPress={() => setPromptVisible(false)} style={[styles.promptButton, styles.cancelButton(theme)]}>
@@ -406,7 +444,6 @@ const StepsScreen = () => {
                     </View>
                 </View>
             </Modal>
-            {/* --- نهاية المودال المعدل --- */}
 
             <ScrollView contentContainerStyle={styles.modalPageContent}>
                 <View style={[styles.card(theme), styles.todaySummaryCard]}>
@@ -513,14 +550,12 @@ const styles = {
     promptTitle: (theme) => ({ fontSize: 18, fontWeight: 'bold', textAlign: 'center', color: theme.textPrimary, marginBottom: 15 }),
     promptInput: (theme) => ({ borderWidth: 1, borderColor: theme.progressUnfilled, backgroundColor: theme.inputBackground, color: theme.textPrimary, borderRadius: 8, padding: 10, textAlign: 'center', fontSize: 18, marginBottom: 20 }),
     
-    // --- Styles الجديدة للأزرار ---
     promptButtonsContainer: (isRTL) => ({ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', width: '100%' }),
     promptButton: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', marginHorizontal: 5 },
     promptButtonPrimary: (theme) => ({ backgroundColor: theme.primary }),
     promptButtonTextPrimary: { color: 'white', fontWeight: 'bold', fontSize: 16 },
     cancelButton: (theme) => ({ backgroundColor: 'transparent', borderWidth: 1, borderColor: theme.textSecondary }),
     cancelButtonText: (theme) => ({ color: theme.textSecondary, fontWeight: 'bold', fontSize: 16 }),
-    // ----------------------------
 
     periodToggleContainer: (theme, isRTL) => ({ flexDirection: isRTL ? 'row-reverse' : 'row', backgroundColor: theme.background, borderRadius: 10, padding: 4, marginBottom: 10 }),
     periodToggleButton: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
