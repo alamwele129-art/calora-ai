@@ -13,7 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import GoogleFit, { Scopes } from 'react-native-google-fit'; 
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, useAnimatedProps } from 'react-native-reanimated';
 import Svg, { Circle, Path } from 'react-native-svg';
-// استدعاء حساس الخطوات للحركة اللحظية
+// 1. استدعاء مكتبة الحساسات للعد اللحظي
 import { Pedometer } from 'expo-sensors';
 
 const STEP_LENGTH_KM = 0.000762;
@@ -128,30 +128,24 @@ const StepsScreen = () => {
         isFetchingRef.current = true;
 
         try {
-            // التحقق من الاتصال الحقيقي
             const storedConnected = await AsyncStorage.getItem('isGoogleFitConnected');
             const isAuth = await GoogleFit.checkIsAuthorized();
 
             if (!isAuth && !isLiveUpdate) {
-                // لو مش متصل ومش بنعمل تحديث لايف، نظهر زرار الربط
-                // ممكن نحاول نعمل Connect اوتوماتيك مرة واحدة لو حابب
                 if (storedConnected === 'true') {
-                   // لو كان متسجل انه متصل قبل كده، نحاول نعمل Reconnect
                    try { await GoogleFit.authorize({ scopes: [Scopes.FITNESS_ACTIVITY_READ, Scopes.FITNESS_ACTIVITY_WRITE, Scopes.FITNESS_BODY_READ] }); } catch(e){}
                 }
             }
 
-            // تحديث حالة الاتصال بناءً على النتيجة الحقيقية
             const finalAuthStatus = await GoogleFit.checkIsAuthorized();
             setIsGoogleFitConnected(finalAuthStatus);
 
             if (!finalAuthStatus) {
                 setLoading(false);
                 isFetchingRef.current = false;
-                return; // نوقف هنا عشان يظهر زرار الربط
+                return; 
             }
             
-            // لو متصل، نكمل جلب البيانات
             const now = new Date();
             const startOfDay = new Date();
             startOfDay.setHours(0,0,0,0);
@@ -166,8 +160,7 @@ const StepsScreen = () => {
                         source.steps.forEach(step => { if (step.value > maxSteps) maxSteps = step.value; });
                     }
                 });
-                // نحدث الخطوات فقط لو القيمة من جوجل أكبر من اللي عندنا
-                // أو لو لسه فاتحين التطبيق (displaySteps == 0)
+                // تحديث الخطوات فقط لو القيمة من جوجل أكبر من الحالية لتجنب الرجوع للخلف أثناء المشي
                 setDisplaySteps(prev => (maxSteps > prev || prev === 0) ? maxSteps : prev);
             }
 
@@ -200,30 +193,34 @@ const StepsScreen = () => {
             }
         } catch (globalError) {
             console.log("Error fetching fit data:", globalError);
-            setIsGoogleFitConnected(false); // لو حصل ايرور نعتبره مش متصل عشان يظهر الزرار
+            setIsGoogleFitConnected(false); 
         } finally {
             setLoading(false);
             isFetchingRef.current = false;
         }
     }, []);
 
-    // تفعيل الـ Pedometer للعد اللحظي بشرط الاتصال
+    // 2. تفعيل حساس الخطوات (Pedometer) للعد اللحظي
     useEffect(() => {
         let pedometerSub;
         const startPedometerTracking = async () => {
-            // نتأكد بس ان المستخدم متصل بجوجل فيت عشان منعدش خطوات وهمية
-            // او ممكن نسيبه يعد عادي حتى لو مش متصل بجوجل فيت كـ Feature اضافية
-            const isAvailable = await Pedometer.isAvailableAsync();
-            if (isAvailable) {
-                pedometerSub = Pedometer.watchStepCount(result => {
-                    if (result.steps > 0) {
-                        setDisplaySteps(prev => prev + result.steps);
-                    }
-                });
+            try {
+                const isAvailable = await Pedometer.isAvailableAsync();
+                if (isAvailable) {
+                    pedometerSub = Pedometer.watchStepCount(result => {
+                        // زود الخطوات لما الحساس يلقط حركة
+                        if (result.steps > 0) {
+                            setDisplaySteps(prev => prev + result.steps);
+                        }
+                    });
+                }
+            } catch (e) {
+                console.log("Pedometer error:", e);
             }
         };
 
         startPedometerTracking();
+        // تنظيف الحساس عند الخروج من الصفحة عشان ميعملش كراش
         return () => { if (pedometerSub) pedometerSub.remove(); };
     }, []);
 
@@ -244,7 +241,6 @@ const StepsScreen = () => {
                 if (isMounted && savedGoal) setStepsGoal(parseInt(savedGoal, 10));
 
                 if (Platform.OS === 'android') {
-                    // طلب الصلاحيات البدنية للحساسات
                     await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BODY_SENSORS);
                 }
 
@@ -258,10 +254,10 @@ const StepsScreen = () => {
                             }
                         });
                         
-                        // تحديث الخلفية كل 15 ثانية لمزامنة جوجل فيت
+                        // تحديث الخلفية كل 10 ثواني لمزامنة جوجل فيت
                         intervalId = setInterval(() => {
                             if (isMounted) fetchGoogleFitData(false, true);
-                        }, 15000); 
+                        }, 10000); 
                     }
                 });
             };
@@ -379,7 +375,6 @@ const StepsScreen = () => {
     const progress = stepsGoal > 0 ? (displaySteps / stepsGoal) : 0;
 
     const renderTodaySummary = () => {
-        // هنا الجزء المهم: لو مش متصل ومش بنحمل، أظهر زرار الربط
         if (!isGoogleFitConnected && !loading) {
             return (
                 <View style={styles.errorContainer}>
