@@ -13,7 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import GoogleFit, { Scopes } from 'react-native-google-fit'; 
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, useAnimatedProps } from 'react-native-reanimated';
 import Svg, { Circle, Path } from 'react-native-svg';
-// 1. استدعاء مكتبة الحساسات للعد اللحظي
+// استدعاء حساس الخطوات للعد الفوري
 import { Pedometer } from 'expo-sensors';
 
 const STEP_LENGTH_KM = 0.000762;
@@ -128,24 +128,18 @@ const StepsScreen = () => {
         isFetchingRef.current = true;
 
         try {
-            const storedConnected = await AsyncStorage.getItem('isGoogleFitConnected');
+            // التحقق من حالة الاتصال
             const isAuth = await GoogleFit.checkIsAuthorized();
-
-            if (!isAuth && !isLiveUpdate) {
-                if (storedConnected === 'true') {
-                   try { await GoogleFit.authorize({ scopes: [Scopes.FITNESS_ACTIVITY_READ, Scopes.FITNESS_ACTIVITY_WRITE, Scopes.FITNESS_BODY_READ] }); } catch(e){}
-                }
-            }
-
-            const finalAuthStatus = await GoogleFit.checkIsAuthorized();
-            setIsGoogleFitConnected(finalAuthStatus);
-
-            if (!finalAuthStatus) {
+            if (!isAuth) {
+                // لو مش متصل، منعملش Fetch عشان ميحصلش Error
+                setIsGoogleFitConnected(false);
                 setLoading(false);
                 isFetchingRef.current = false;
-                return; 
+                return;
+            } else {
+                setIsGoogleFitConnected(true);
             }
-            
+
             const now = new Date();
             const startOfDay = new Date();
             startOfDay.setHours(0,0,0,0);
@@ -160,8 +154,8 @@ const StepsScreen = () => {
                         source.steps.forEach(step => { if (step.value > maxSteps) maxSteps = step.value; });
                     }
                 });
-                // تحديث الخطوات فقط لو القيمة من جوجل أكبر من الحالية لتجنب الرجوع للخلف أثناء المشي
-                setDisplaySteps(prev => (maxSteps > prev || prev === 0) ? maxSteps : prev);
+                // نستخدم القيمة الأكبر بين المخزن والمجلوب
+                setDisplaySteps(prev => (maxSteps > prev) ? maxSteps : prev);
             }
 
             if (isLiveUpdate) {
@@ -193,14 +187,15 @@ const StepsScreen = () => {
             }
         } catch (globalError) {
             console.log("Error fetching fit data:", globalError);
-            setIsGoogleFitConnected(false); 
+            // لو حصل خطأ في الاتصال، ممكن يكون التوكن انتهى
+            // setIsGoogleFitConnected(false); 
         } finally {
             setLoading(false);
             isFetchingRef.current = false;
         }
     }, []);
 
-    // 2. تفعيل حساس الخطوات (Pedometer) للعد اللحظي
+    // --- تفعيل حساس الخطوات (Pedometer) للعد اللحظي ---
     useEffect(() => {
         let pedometerSub;
         const startPedometerTracking = async () => {
@@ -208,7 +203,7 @@ const StepsScreen = () => {
                 const isAvailable = await Pedometer.isAvailableAsync();
                 if (isAvailable) {
                     pedometerSub = Pedometer.watchStepCount(result => {
-                        // زود الخطوات لما الحساس يلقط حركة
+                        // كل ما تمشي خطوة، زود العداد فوراً
                         if (result.steps > 0) {
                             setDisplaySteps(prev => prev + result.steps);
                         }
@@ -218,17 +213,15 @@ const StepsScreen = () => {
                 console.log("Pedometer error:", e);
             }
         };
-
         startPedometerTracking();
-        // تنظيف الحساس عند الخروج من الصفحة عشان ميعملش كراش
         return () => { if (pedometerSub) pedometerSub.remove(); };
     }, []);
+    // --------------------------------------------------
 
     useFocusEffect(
         useCallback(() => {
             let isMounted = true;
             let intervalId = null;
-            let appStateSubscription = null;
 
             const init = async () => {
                 const savedTheme = await AsyncStorage.getItem('isDarkMode');
@@ -241,20 +234,19 @@ const StepsScreen = () => {
                 if (isMounted && savedGoal) setStepsGoal(parseInt(savedGoal, 10));
 
                 if (Platform.OS === 'android') {
-                    await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BODY_SENSORS);
+                     await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BODY_SENSORS);
                 }
 
-                InteractionManager.runAfterInteractions(() => {
+                InteractionManager.runAfterInteractions(async () => {
                     if (isMounted) {
-                        fetchGoogleFitData(true, false);
+                        const storedConnected = await AsyncStorage.getItem('isGoogleFitConnected');
+                        if (storedConnected === 'true') {
+                             fetchGoogleFitData(true, false);
+                        } else {
+                            setLoading(false);
+                        }
                         
-                        appStateSubscription = AppState.addEventListener('change', nextAppState => {
-                            if (nextAppState === 'active' && isMounted) {
-                                fetchGoogleFitData(false, true);
-                            }
-                        });
-                        
-                        // تحديث الخلفية كل 10 ثواني لمزامنة جوجل فيت
+                        // تحديث الخلفية من جوجل فيت كل فترة لضمان الدقة
                         intervalId = setInterval(() => {
                             if (isMounted) fetchGoogleFitData(false, true);
                         }, 10000); 
@@ -266,35 +258,60 @@ const StepsScreen = () => {
             return () => { 
                 isMounted = false; 
                 if (intervalId) clearInterval(intervalId);
-                if (appStateSubscription) appStateSubscription.remove();
             };
         }, [fetchGoogleFitData]) 
     );
     
+    // --- دالة الربط المحسنة مع رسائل الخطأ ---
     const connectGoogleFit = async () => {
         if (!GoogleFit) {
              Alert.alert(t('errorTitle'), t('notAvailableMsg'));
              return;
         }
+
         try {
+            // 1. طلب الصلاحيات
             let permissionGranted = true;
             if (Platform.OS === 'android' && Platform.Version >= 29) {
                 const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACTIVITY_RECOGNITION);
-                if (granted !== PermissionsAndroid.RESULTS.GRANTED) permissionGranted = false;
+                if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+                    permissionGranted = false;
+                    Alert.alert(t('permissionDeniedTitle'), t('permissionDeniedMsg'));
+                    return;
+                }
             }
+
             if (permissionGranted) {
-                const options = { scopes: [Scopes.FITNESS_ACTIVITY_READ, Scopes.FITNESS_ACTIVITY_WRITE, Scopes.FITNESS_BODY_READ] };
+                const options = { 
+                    scopes: [
+                        Scopes.FITNESS_ACTIVITY_READ, 
+                        Scopes.FITNESS_ACTIVITY_WRITE, 
+                        Scopes.FITNESS_BODY_READ
+                    ] 
+                };
+                
+                // 2. محاولة الاتصال
                 const res = await GoogleFit.authorize(options);
+                console.log("Google Fit Auth Result:", res);
+
                 if (res.success) {
                     setIsGoogleFitConnected(true);
                     await AsyncStorage.setItem('isGoogleFitConnected', 'true');
                     fetchGoogleFitData(true, false);
                 } else {
-                    Alert.alert(t('errorTitle'), t('permissionDeniedMsg'));
+                    // هنا يظهر سبب المشكلة الحقيقي
+                    Alert.alert(
+                        "فشل الاتصال", 
+                        "تعذر الاتصال بجوجل فيت. تأكد من إعدادات (SHA-1) في Google Cloud Console وإضافة الإيميل في Test Users.\n\n" + res.message
+                    );
                 }
             }
-        } catch (error) { console.warn("Auth Error:", error); }
+        } catch (error) { 
+            console.warn("Auth Error:", error); 
+            Alert.alert("Error", "حدث خطأ غير متوقع: " + error.message);
+        }
     };
+    // ------------------------------------------
 
     useEffect(() => {
         setSelectedBarIndex(null);
@@ -375,6 +392,7 @@ const StepsScreen = () => {
     const progress = stepsGoal > 0 ? (displaySteps / stepsGoal) : 0;
 
     const renderTodaySummary = () => {
+        // نظهر واجهة الاتصال لو المستخدم غير متصل وكمان التحميل انتهى
         if (!isGoogleFitConnected && !loading) {
             return (
                 <View style={styles.errorContainer}>
