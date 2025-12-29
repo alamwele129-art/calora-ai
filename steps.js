@@ -4,8 +4,7 @@ import {
     ActivityIndicator, Modal, TextInput, StatusBar,
     Platform, PermissionsAndroid, AppState, InteractionManager,
     I18nManager,
-    DeviceEventEmitter,
-    Alert 
+    DeviceEventEmitter 
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons'; 
@@ -90,7 +89,6 @@ const AnimatedStepsCircle = ({ progress, size, strokeWidth, currentStepCount, th
 
 const StepsScreen = () => {
     const navigation = useNavigation(); 
-    // ده المتغير اللي بيحمي التطبيق من الكراش (بيمنع تداخل الطلبات)
     const isFetchingRef = useRef(false);
     
     const [theme, setTheme] = useState(lightTheme);
@@ -105,10 +103,12 @@ const StepsScreen = () => {
     const [tempGoalInput, setTempGoalInput] = useState(''); 
 
     const [selectedPeriod, setSelectedPeriod] = useState('week');
+    
     const [language, setLanguage] = useState('en');
     const [selectedBarIndex, setSelectedBarIndex] = useState(null);
 
     const isRTL = language === 'en'; 
+
     const t = (key) => translations[language]?.[key] || translations['en'][key] || key;
 
     useLayoutEffect(() => {
@@ -123,23 +123,23 @@ const StepsScreen = () => {
     }, [navigation, theme, language, isRTL]);
 
     const fetchGoogleFitData = useCallback(async (shouldFetchHistory = true, isLiveUpdate = false) => {
-        // حماية: لو في طلب شغال، وطلبنا تحديث، ميعملش حاجة لحد ما القديم يخلص
         if (isFetchingRef.current && !isLiveUpdate) return;
         isFetchingRef.current = true;
 
         try {
-            const isAuth = await GoogleFit.checkIsAuthorized();
-            if (!isAuth) {
-                if (!isLiveUpdate) {
-                    setIsGoogleFitConnected(false);
-                    setLoading(false);
-                }
-                isFetchingRef.current = false;
-                return;
-            } else {
-                setIsGoogleFitConnected(true);
+            const storedConnected = await AsyncStorage.getItem('isGoogleFitConnected');
+            if (storedConnected !== 'true' || Platform.OS !== 'android' || !GoogleFit) {
+                setIsGoogleFitConnected(false); setLoading(false); isFetchingRef.current = false; return;
             }
 
+            if (!isLiveUpdate) {
+                const isAuth = await GoogleFit.checkIsAuthorized();
+                if (!isAuth) {
+                    try { await GoogleFit.authorize({ scopes: [Scopes.FITNESS_ACTIVITY_READ, Scopes.FITNESS_ACTIVITY_WRITE, Scopes.FITNESS_BODY_READ] }); } catch(e){}
+                }
+                setIsGoogleFitConnected(true);
+            }
+            
             const now = new Date();
             const startOfDay = new Date();
             startOfDay.setHours(0,0,0,0);
@@ -154,7 +154,8 @@ const StepsScreen = () => {
                         source.steps.forEach(step => { if (step.value > maxSteps) maxSteps = step.value; });
                     }
                 });
-                setDisplaySteps(prev => (maxSteps > prev) ? maxSteps : prev);
+                // إذا لم يتم تحديث الخطوات عبر الـ Listener، نستخدم القيمة هنا
+                setDisplaySteps(prev => (maxSteps > prev ? maxSteps : prev));
             }
 
             if (isLiveUpdate) {
@@ -196,6 +197,8 @@ const StepsScreen = () => {
         useCallback(() => {
             let isMounted = true;
             let intervalId = null;
+            let appStateSubscription = null;
+            let stepListener = null;
 
             const init = async () => {
                 const savedTheme = await AsyncStorage.getItem('isDarkMode');
@@ -208,22 +211,33 @@ const StepsScreen = () => {
                 if (isMounted && savedGoal) setStepsGoal(parseInt(savedGoal, 10));
 
                 if (Platform.OS === 'android') {
-                     await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BODY_SENSORS);
+                    PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BODY_SENSORS);
                 }
 
-                InteractionManager.runAfterInteractions(async () => {
+                InteractionManager.runAfterInteractions(() => {
                     if (isMounted) {
-                        const storedConnected = await AsyncStorage.getItem('isGoogleFitConnected');
-                        if (storedConnected === 'true') {
-                             fetchGoogleFitData(true, false);
-                        } else {
-                            setLoading(false);
-                        }
+                        fetchGoogleFitData(true, false);
                         
-                        // التعديل هنا: تحديث كل 1000 مللي ثانية (ثانية واحدة)
+                        // --- التعديل هنا فقط: تفعيل الاستماع الفوري للخطوات ---
+                        if (GoogleFit) {
+                            GoogleFit.observeSteps((res) => {}); // تفعيل المراقب
+                            stepListener = DeviceEventEmitter.addListener('StepChanged', (event) => {
+                                // هذا الحدث يعمل عند المشي ويعيد إجمالي خطوات اليوم
+                                if (event && event.steps && isMounted) {
+                                    setDisplaySteps(event.steps);
+                                }
+                            });
+                        }
+                        // -----------------------------------------------------
+
+                        appStateSubscription = AppState.addEventListener('change', nextAppState => {
+                            if (nextAppState === 'active' && isMounted) {
+                                fetchGoogleFitData(false, true);
+                            }
+                        });
                         intervalId = setInterval(() => {
                             if (isMounted) fetchGoogleFitData(false, true);
-                        }, 1000); 
+                        }, 10000); 
                     }
                 });
             };
@@ -232,6 +246,8 @@ const StepsScreen = () => {
             return () => { 
                 isMounted = false; 
                 if (intervalId) clearInterval(intervalId);
+                if (appStateSubscription) appStateSubscription.remove();
+                if (stepListener) stepListener.remove(); // تنظيف المستمع
             };
         }, [fetchGoogleFitData]) 
     );
@@ -241,44 +257,22 @@ const StepsScreen = () => {
              Alert.alert(t('errorTitle'), t('notAvailableMsg'));
              return;
         }
-
         try {
             let permissionGranted = true;
             if (Platform.OS === 'android' && Platform.Version >= 29) {
                 const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACTIVITY_RECOGNITION);
-                if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-                    permissionGranted = false;
-                    Alert.alert(t('permissionDeniedTitle'), t('permissionDeniedMsg'));
-                    return;
-                }
+                if (granted !== PermissionsAndroid.RESULTS.GRANTED) permissionGranted = false;
             }
-
             if (permissionGranted) {
-                const options = { 
-                    scopes: [
-                        Scopes.FITNESS_ACTIVITY_READ, 
-                        Scopes.FITNESS_ACTIVITY_WRITE, 
-                        Scopes.FITNESS_BODY_READ
-                    ] 
-                };
-                
+                const options = { scopes: [Scopes.FITNESS_ACTIVITY_READ, Scopes.FITNESS_ACTIVITY_WRITE, Scopes.FITNESS_BODY_READ] };
                 const res = await GoogleFit.authorize(options);
-                
                 if (res.success) {
                     setIsGoogleFitConnected(true);
                     await AsyncStorage.setItem('isGoogleFitConnected', 'true');
                     fetchGoogleFitData(true, false);
-                } else {
-                    Alert.alert(
-                        "فشل الاتصال", 
-                        "تعذر الاتصال بجوجل فيت. تأكد من إعدادات SHA-1.\n" + res.message
-                    );
                 }
             }
-        } catch (error) { 
-            console.warn("Auth Error:", error); 
-            Alert.alert("Error", error.message);
-        }
+        } catch (error) { console.warn("Auth Error:", error); }
     };
 
     useEffect(() => {
@@ -330,7 +324,7 @@ const StepsScreen = () => {
     }, [selectedPeriod, rawStepsData, language]);
     
     const handleOpenGoalModal = () => {
-        setTempGoalInput('');
+        setTempGoalInput(''); 
         setPromptVisible(true);
     };
 
@@ -529,14 +523,12 @@ const styles = {
     promptContainer: (theme) => ({ width: '85%', backgroundColor: theme.card, borderRadius: 15, padding: 20 }),
     promptTitle: (theme) => ({ fontSize: 18, fontWeight: 'bold', textAlign: 'center', color: theme.textPrimary, marginBottom: 15 }),
     promptInput: (theme) => ({ borderWidth: 1, borderColor: theme.progressUnfilled, backgroundColor: theme.inputBackground, color: theme.textPrimary, borderRadius: 8, padding: 10, textAlign: 'center', fontSize: 18, marginBottom: 20 }),
-    
     promptButtonsContainer: (isRTL) => ({ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', width: '100%' }),
     promptButton: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', marginHorizontal: 5 },
     promptButtonPrimary: (theme) => ({ backgroundColor: theme.primary }),
     promptButtonTextPrimary: { color: 'white', fontWeight: 'bold', fontSize: 16 },
     cancelButton: (theme) => ({ backgroundColor: 'transparent', borderWidth: 1, borderColor: theme.textSecondary }),
     cancelButtonText: (theme) => ({ color: theme.textSecondary, fontWeight: 'bold', fontSize: 16 }),
-
     periodToggleContainer: (theme, isRTL) => ({ flexDirection: isRTL ? 'row-reverse' : 'row', backgroundColor: theme.background, borderRadius: 10, padding: 4, marginBottom: 10 }),
     periodToggleButton: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
     activePeriodButton: (theme) => ({ backgroundColor: theme.card, elevation: 2 }),
