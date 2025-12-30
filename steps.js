@@ -3,8 +3,7 @@ import {
     StyleSheet, View, Text, ScrollView, SafeAreaView, TouchableOpacity, 
     ActivityIndicator, Modal, TextInput, StatusBar,
     Platform, PermissionsAndroid, AppState, InteractionManager,
-    I18nManager,
-    DeviceEventEmitter 
+    DeviceEventEmitter
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons'; 
@@ -12,6 +11,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import GoogleFit, { Scopes } from 'react-native-google-fit'; 
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, useAnimatedProps } from 'react-native-reanimated';
 import Svg, { Circle, Path } from 'react-native-svg';
+
+// >>> المكتبة الجديدة للحساسات <<<
+import { pedometer } from 'react-native-sensors';
+import { map } from 'rxjs/operators';
 
 const STEP_LENGTH_KM = 0.000762;
 const CALORIES_PER_STEP = 0.04;
@@ -122,9 +125,8 @@ const StepsScreen = () => {
         });
     }, [navigation, theme, language, isRTL]);
 
-    const fetchGoogleFitData = useCallback(async (shouldFetchHistory = true, isLiveUpdate = false) => {
-        // لو لايف ابديت اسمح بالتنفيذ حتى لو فيه فيتش شغال
-        if (isFetchingRef.current && !isLiveUpdate) return;
+    const fetchGoogleFitData = useCallback(async (shouldFetchHistory = true) => {
+        if (isFetchingRef.current) return;
         isFetchingRef.current = true;
 
         try {
@@ -133,13 +135,11 @@ const StepsScreen = () => {
                 setIsGoogleFitConnected(false); setLoading(false); isFetchingRef.current = false; return;
             }
 
-            if (!isLiveUpdate) {
-                const isAuth = await GoogleFit.checkIsAuthorized();
-                if (!isAuth) {
-                    try { await GoogleFit.authorize({ scopes: [Scopes.FITNESS_ACTIVITY_READ, Scopes.FITNESS_ACTIVITY_WRITE, Scopes.FITNESS_BODY_READ] }); } catch(e){}
-                }
-                setIsGoogleFitConnected(true);
+            const isAuth = await GoogleFit.checkIsAuthorized();
+            if (!isAuth) {
+                try { await GoogleFit.authorize({ scopes: [Scopes.FITNESS_ACTIVITY_READ, Scopes.FITNESS_ACTIVITY_WRITE, Scopes.FITNESS_BODY_READ] }); } catch(e){}
             }
+            setIsGoogleFitConnected(true);
             
             const now = new Date();
             const startOfDay = new Date();
@@ -155,12 +155,8 @@ const StepsScreen = () => {
                         source.steps.forEach(step => { if (step.value > maxSteps) maxSteps = step.value; });
                     }
                 });
-                setDisplaySteps(maxSteps);
-            }
-
-            if (isLiveUpdate) {
-                isFetchingRef.current = false;
-                return;
+                // تعيين القيمة المبدئية من جوجل (مثلاً 5000 خطوة مسجلة)
+                setDisplaySteps(prev => Math.max(prev, maxSteps));
             }
 
             if (shouldFetchHistory) {
@@ -193,12 +189,35 @@ const StepsScreen = () => {
         }
     }, []);
 
+    // >>>>> الحساس اللحظي (Tick Tick) <<<<<
+    useEffect(() => {
+        let subscription;
+        // التأكد إننا على أندرويد لأن المكتبة دي بتشتغل على الحساسات مباشرة
+        if (Platform.OS === 'android') {
+            try {
+                // الاشتراك في حساس الـ Pedometer
+                // ده بيرجع داتا كل ما يحس بخطوة
+                subscription = pedometer.subscribe(sensorData => {
+                    // عشان نتفادى التعقيد: كل ما يبعت داتا معناه فيه خطوة حصلت
+                    // بنزود 1 على العداد الموجود في الشاشة
+                    setDisplaySteps(prevSteps => prevSteps + 1);
+                });
+            } catch (error) {
+                console.log("Sensor error: ", error);
+            }
+        }
+
+        return () => {
+            if (subscription) {
+                subscription.unsubscribe();
+            }
+        };
+    }, []);
+
     useFocusEffect(
         useCallback(() => {
             let isMounted = true;
             let intervalId = null;
-            let appStateSubscription = null;
-            let stepObserverListener = null;
 
             const init = async () => {
                 const savedTheme = await AsyncStorage.getItem('isDarkMode');
@@ -219,35 +238,7 @@ const StepsScreen = () => {
 
                 InteractionManager.runAfterInteractions(async () => {
                     if (isMounted) {
-                        // 1. جلب البيانات الأولية
-                        await fetchGoogleFitData(true, false);
-
-                        // 2. التحقق من الاتصال وتفعيل التسجيل الفوري
-                        const isAuth = await GoogleFit.checkIsAuthorized();
-                        if (isAuth) {
-                            // >>> تفعيل التسجيل المباشر للحساسات <<<
-                            GoogleFit.startRecording((callback) => {
-                                // تم تفعيل وضع التسجيل
-                            });
-
-                            GoogleFit.observeSteps((isError) => {});
-
-                            // الاستماع لتغيير الخطوات لحظياً
-                            stepObserverListener = DeviceEventEmitter.addListener('StepChanged', (event) => {
-                                if (isMounted) fetchGoogleFitData(false, true);
-                            });
-                        }
-
-                        appStateSubscription = AppState.addEventListener('change', nextAppState => {
-                            if (nextAppState === 'active' && isMounted) {
-                                fetchGoogleFitData(false, true);
-                            }
-                        });
-                        
-                        // فاصل زمني سريع (3 ثواني) لضمان التحديث
-                        intervalId = setInterval(() => {
-                            if (isMounted) fetchGoogleFitData(false, true);
-                        }, 3000); 
+                        await fetchGoogleFitData(true);
                     }
                 });
             };
@@ -256,9 +247,6 @@ const StepsScreen = () => {
             return () => { 
                 isMounted = false; 
                 if (intervalId) clearInterval(intervalId);
-                if (appStateSubscription) appStateSubscription.remove();
-                if (stepObserverListener) stepObserverListener.remove();
-                GoogleFit.unsubscribeListeners(); 
             };
         }, [fetchGoogleFitData]) 
     );
@@ -280,11 +268,7 @@ const StepsScreen = () => {
                 if (res.success) {
                     setIsGoogleFitConnected(true);
                     await AsyncStorage.setItem('isGoogleFitConnected', 'true');
-                    fetchGoogleFitData(true, false);
-                    
-                    // تفعيل المراقب بعد الاتصال اليدوي
-                    GoogleFit.startRecording(() => {});
-                    GoogleFit.observeSteps(() => {});
+                    fetchGoogleFitData(true);
                 }
             }
         } catch (error) { console.warn("Auth Error:", error); }
