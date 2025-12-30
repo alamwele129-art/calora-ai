@@ -12,9 +12,8 @@ import GoogleFit, { Scopes } from 'react-native-google-fit';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, useAnimatedProps } from 'react-native-reanimated';
 import Svg, { Circle, Path } from 'react-native-svg';
 
-// >>> المكتبة الجديدة للحساسات <<<
-import { pedometer } from 'react-native-sensors';
-import { map } from 'rxjs/operators';
+// >>> الحل الآمن والمدعوم في Expo <<<
+import { Pedometer } from 'expo-sensors';
 
 const STEP_LENGTH_KM = 0.000762;
 const CALORIES_PER_STEP = 0.04;
@@ -155,7 +154,7 @@ const StepsScreen = () => {
                         source.steps.forEach(step => { if (step.value > maxSteps) maxSteps = step.value; });
                     }
                 });
-                // تعيين القيمة المبدئية من جوجل (مثلاً 5000 خطوة مسجلة)
+                // تعيين الرقم الأساسي من جوجل عشان يبقى دقيق
                 setDisplaySteps(prev => Math.max(prev, maxSteps));
             }
 
@@ -189,27 +188,26 @@ const StepsScreen = () => {
         }
     }, []);
 
-    // >>>>> الحساس اللحظي (Tick Tick) <<<<<
+    // >>>>> تفعيل العداد اللحظي باستخدام Expo Sensors (الحل الآمن) <<<<<
     useEffect(() => {
         let subscription;
-        // التأكد إننا على أندرويد لأن المكتبة دي بتشتغل على الحساسات مباشرة
-        if (Platform.OS === 'android') {
-            try {
-                // الاشتراك في حساس الـ Pedometer
-                // ده بيرجع داتا كل ما يحس بخطوة
-                subscription = pedometer.subscribe(sensorData => {
-                    // عشان نتفادى التعقيد: كل ما يبعت داتا معناه فيه خطوة حصلت
-                    // بنزود 1 على العداد الموجود في الشاشة
-                    setDisplaySteps(prevSteps => prevSteps + 1);
+        const subscribe = async () => {
+            const isAvailable = await Pedometer.isAvailableAsync();
+            if (isAvailable) {
+                // ده هيشتغل "تيك تيك" زي ما أنت عايز
+                subscription = Pedometer.watchStepCount(result => {
+                    // كل ما يحس بحركة، هيزود العداد 1 فوراً
+                    // دي مجرد "خدعة بصرية" عشان تحس بالسرعة لحد ما جوجل يأكد الرقم
+                    setDisplaySteps(prev => prev + 1);
                 });
-            } catch (error) {
-                console.log("Sensor error: ", error);
             }
-        }
+        };
+
+        subscribe();
 
         return () => {
-            if (subscription) {
-                subscription.unsubscribe();
+            if (subscription && subscription.remove) {
+                subscription.remove();
             }
         };
     }, []);
