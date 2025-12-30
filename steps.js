@@ -12,8 +12,8 @@ import GoogleFit, { Scopes } from 'react-native-google-fit';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, useAnimatedProps } from 'react-native-reanimated';
 import Svg, { Circle, Path } from 'react-native-svg';
 
-// >>> الحل الآمن والمدعوم في Expo <<<
-import { Pedometer } from 'expo-sensors';
+// >>> هنستخدم حساس الحركة عشان السرعة اللحظية <<<
+import { Accelerometer } from 'expo-sensors';
 
 const STEP_LENGTH_KM = 0.000762;
 const CALORIES_PER_STEP = 0.04;
@@ -101,6 +101,9 @@ const StepsScreen = () => {
     const [loading, setLoading] = useState(true);
     const [isGoogleFitConnected, setIsGoogleFitConnected] = useState(false); 
     
+    // متغيرات للتحكم في حساب الخطوات من الحركة
+    const lastStepTime = useRef(0);
+    
     const [isPromptVisible, setPromptVisible] = useState(false);
     const [tempGoalInput, setTempGoalInput] = useState('');
 
@@ -154,7 +157,7 @@ const StepsScreen = () => {
                         source.steps.forEach(step => { if (step.value > maxSteps) maxSteps = step.value; });
                     }
                 });
-                // تعيين الرقم الأساسي من جوجل عشان يبقى دقيق
+                // تعيين الرقم الأساسي، بس هنسيب مجال للزيادة اللحظية
                 setDisplaySteps(prev => Math.max(prev, maxSteps));
             }
 
@@ -188,27 +191,31 @@ const StepsScreen = () => {
         }
     }, []);
 
-    // >>>>> تفعيل العداد اللحظي باستخدام Expo Sensors (الحل الآمن) <<<<<
+    // >>>>> الحل السحري: استخدام Accelerometer للكشف عن الخطوات لحظياً <<<<<
     useEffect(() => {
-        let subscription;
-        const subscribe = async () => {
-            const isAvailable = await Pedometer.isAvailableAsync();
-            if (isAvailable) {
-                // ده هيشتغل "تيك تيك" زي ما أنت عايز
-                subscription = Pedometer.watchStepCount(result => {
-                    // كل ما يحس بحركة، هيزود العداد 1 فوراً
-                    // دي مجرد "خدعة بصرية" عشان تحس بالسرعة لحد ما جوجل يأكد الرقم
-                    setDisplaySteps(prev => prev + 1);
-                });
-            }
-        };
+        // بنحدد سرعة تحديث الحساس (100 مللي ثانية) عشان يبقى سريع
+        Accelerometer.setUpdateInterval(100);
 
-        subscribe();
+        const subscription = Accelerometer.addListener(accelerometerData => {
+            const { x, y, z } = accelerometerData;
+            
+            // معادلة حساب قوة الحركة
+            const magnitude = Math.sqrt(x * x + y * y + z * z);
+            
+            // 1.2 ده معيار "الهزة" بتاعة المشي (ممكن تعليها لـ 1.3 لو بيعد وأنت قاعد)
+            const threshold = 1.2; 
+            
+            const now = Date.now();
+            // شرط الوقت: عشان ميعدش الخطوة الواحدة 10 مرات في الثانية
+            // لازم يعدي 350 مللي ثانية بين كل خطوة والتانية (زمن الخطوة الطبيعي للإنسان)
+            if (magnitude >= threshold && (now - lastStepTime.current > 350)) {
+                lastStepTime.current = now;
+                setDisplaySteps(prevSteps => prevSteps + 1);
+            }
+        });
 
         return () => {
-            if (subscription && subscription.remove) {
-                subscription.remove();
-            }
+            subscription && subscription.remove();
         };
     }, []);
 
