@@ -123,6 +123,7 @@ const StepsScreen = () => {
     }, [navigation, theme, language, isRTL]);
 
     const fetchGoogleFitData = useCallback(async (shouldFetchHistory = true, isLiveUpdate = false) => {
+        // لو لايف ابديت اسمح بالتنفيذ حتى لو فيه فيتش شغال
         if (isFetchingRef.current && !isLiveUpdate) return;
         isFetchingRef.current = true;
 
@@ -210,9 +211,7 @@ const StepsScreen = () => {
                 if (isMounted && savedGoal) setStepsGoal(parseInt(savedGoal, 10));
 
                 if (Platform.OS === 'android') {
-                    // طلب صلاحية الحساسات
                     await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BODY_SENSORS);
-                    // طلب صلاحية التعرف على النشاط (ضروري للأندرويد 10+)
                     if (Platform.Version >= 29) {
                         await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACTIVITY_RECOGNITION);
                     }
@@ -223,15 +222,17 @@ const StepsScreen = () => {
                         // 1. جلب البيانات الأولية
                         await fetchGoogleFitData(true, false);
 
-                        // 2. التحقق من الاتصال وبدء المراقبة
+                        // 2. التحقق من الاتصال وتفعيل التسجيل الفوري
                         const isAuth = await GoogleFit.checkIsAuthorized();
                         if (isAuth) {
-                            // استخدام observeSteps فقط لتجنب كراش startRecording
-                            GoogleFit.observeSteps((isError) => {
-                                // callback بسيط
+                            // >>> تفعيل التسجيل المباشر للحساسات <<<
+                            GoogleFit.startRecording((callback) => {
+                                // تم تفعيل وضع التسجيل
                             });
 
-                            // الاستماع للحدث لتحديث الواجهة فوراً
+                            GoogleFit.observeSteps((isError) => {});
+
+                            // الاستماع لتغيير الخطوات لحظياً
                             stepObserverListener = DeviceEventEmitter.addListener('StepChanged', (event) => {
                                 if (isMounted) fetchGoogleFitData(false, true);
                             });
@@ -243,10 +244,10 @@ const StepsScreen = () => {
                             }
                         });
                         
-                        // فاصل زمني كنسخة احتياطية
+                        // فاصل زمني سريع (3 ثواني) لضمان التحديث
                         intervalId = setInterval(() => {
                             if (isMounted) fetchGoogleFitData(false, true);
-                        }, 5000); 
+                        }, 3000); 
                     }
                 });
             };
@@ -257,7 +258,7 @@ const StepsScreen = () => {
                 if (intervalId) clearInterval(intervalId);
                 if (appStateSubscription) appStateSubscription.remove();
                 if (stepObserverListener) stepObserverListener.remove();
-                GoogleFit.unsubscribeListeners(); // تنظيف المراقب
+                GoogleFit.unsubscribeListeners(); 
             };
         }, [fetchGoogleFitData]) 
     );
@@ -280,8 +281,9 @@ const StepsScreen = () => {
                     setIsGoogleFitConnected(true);
                     await AsyncStorage.setItem('isGoogleFitConnected', 'true');
                     fetchGoogleFitData(true, false);
-
-                    // تفعيل المراقب بعد الاتصال
+                    
+                    // تفعيل المراقب بعد الاتصال اليدوي
+                    GoogleFit.startRecording(() => {});
                     GoogleFit.observeSteps(() => {});
                 }
             }
