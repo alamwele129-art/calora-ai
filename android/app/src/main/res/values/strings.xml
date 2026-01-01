@@ -1,0 +1,4 @@
+<resources>
+  <string name="app_name">Calora AI</string>
+  <string name="ExpoLocalization_supportsRTL" translatable="false">true</string>
+</resources>
