@@ -22,9 +22,6 @@
             "SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork"
           }
         ]
-      },
-      "config": {
-        "googleMobileAdsAppId": "ca-app-pub-8833281523608204~8626106265"
       }
     },
     "android": {
@@ -51,10 +48,7 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.BODY_SENSORS",
         "com.google.android.gms.permission.AD_ID"
-      ],
-      "config": {
-        "googleMobileAdsAppId": "ca-app-pub-8833281523608204~9203025069"
-      }
+      ]
     },
     "web": {
       "favicon": "./assets/icon.png"
