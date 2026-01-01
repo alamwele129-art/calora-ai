@@ -54,6 +54,7 @@
     "react-native-get-random-values": "~1.11.0",
     "react-native-gifted-charts": "*",
     "react-native-google-fit": "^0.22.1",
+    "react-native-google-mobile-ads": "^14.2.2",
     "react-native-image-picker": "*",
     "react-native-linear-gradient": "*",
     "react-native-paper": "4.9.2",

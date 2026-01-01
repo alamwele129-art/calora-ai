@@ -16,7 +16,12 @@
         "NSMicrophoneUsageDescription": "This app needs access to your microphone for camera features.",
         "NSMotionUsageDescription": "This app needs access to your motion activity to track steps.",
         "NSHealthShareUsageDescription": "This app needs access to health data to track your fitness progress.",
-        "NSHealthUpdateUsageDescription": "This app needs access to update your health data."
+        "NSHealthUpdateUsageDescription": "This app needs access to update your health data.",
+        "SKAdNetworkItems": [
+          {
+            "SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork"
+          }
+        ]
       },
       "config": {
         "googleMobileAdsAppId": "ca-app-pub-8833281523608204~8626106265"
@@ -44,7 +49,8 @@
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.INTERNET",
         "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.BODY_SENSORS"
+        "android.permission.BODY_SENSORS",
+        "com.google.android.gms.permission.AD_ID"
       ],
       "config": {
         "googleMobileAdsAppId": "ca-app-pub-8833281523608204~9203025069"
@@ -99,9 +105,10 @@
         }
       ],
       [
-        "react-native-google-fit",
+        "react-native-google-mobile-ads",
         {
-          "isSwift": true
+          "androidAppId": "ca-app-pub-8833281523608204~9203025069",
+          "iosAppId": "ca-app-pub-8833281523608204~9203025069"
         }
       ]
     ],
