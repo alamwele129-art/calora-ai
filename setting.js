@@ -13,6 +13,50 @@ import GoogleFit, { Scopes } from 'react-native-google-fit';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Updates from 'expo-updates';
 
+// ---------------------------------------------------------------------------
+// --- حل مشكلة البانر الإعلاني (Safe Banner Ad Handler) ---
+// ---------------------------------------------------------------------------
+let BannerAd, BannerAdSize, TestIds;
+const productionAdUnitId = 'ca-app-pub-8833281523608204/7371068641'; // الكود الحقيقي
+
+try {
+    // محاولة استدعاء المكتبة الحقيقية
+    const adMob = require('react-native-google-mobile-ads');
+    BannerAd = adMob.BannerAd;
+    BannerAdSize = adMob.BannerAdSize;
+    TestIds = adMob.TestIds;
+} catch (error) {
+    console.log("AdMob not found (Expo Go). Using Mock Banner.");
+    
+    // تعريفات وهمية لبيئة التطوير Expo Go
+    TestIds = { BANNER: 'test-banner-id' };
+    BannerAdSize = { 
+        ANCHORED_ADAPTIVE_BANNER: 'ANCHORED_ADAPTIVE_BANNER',
+        BANNER: 'BANNER'
+    };
+
+    // مكون وهمي يظهر مكان الإعلان
+    BannerAd = ({ size }) => (
+        <View style={{
+            height: 60,
+            width: '100%',
+            backgroundColor: '#eee',
+            justifyContent: 'center',
+            alignItems: 'center',
+            borderTopWidth: 1,
+            borderColor: '#ccc',
+        }}>
+            <Text style={{color: '#888', fontSize: 12}}>Ads (Visible in APK Build)</Text>
+        </View>
+    );
+}
+
+// تحديد معرف الإعلان: لو في وضع التطوير ومكتبة الإعلانات موجودة -> استخدم TestID
+// لو في الإنتاج (أو الموك) -> استخدم ProductionID (أو الموك هيتجاهله)
+const adUnitId = (__DEV__ && BannerAd.name !== 'BannerAd') ? TestIds.BANNER : productionAdUnitId;
+// ---------------------------------------------------------------------------
+
+
 // تأكد من وجود ملف البيانات هذا أو قم بتعليقه إذا لم يكن موجوداً
 import notificationsData from './notificationsdata'; 
 
@@ -425,7 +469,6 @@ const SettingsScreen = ({ navigation, onThemeChange, appLanguage }) => {
     
     if (newReminders.stepsGoal.enabled) {
         try {
-            // التحقق لتجنب تكرار التسجيل
             const isRegistered = await TaskManager.isTaskRegisteredAsync('steps-notification-task');
             if (!isRegistered && TaskManager && TaskManager.registerTaskAsync) {
                 await TaskManager.registerTaskAsync('steps-notification-task', { minimumInterval: 15 * 60 });
@@ -435,7 +478,6 @@ const SettingsScreen = ({ navigation, onThemeChange, appLanguage }) => {
         }
     } else {
         try {
-            // التحقق قبل الحذف لتجنب TaskNotFoundException
             const isRegistered = await TaskManager.isTaskRegisteredAsync('steps-notification-task');
             if (isRegistered && TaskManager && TaskManager.unregisterTaskAsync) {
                 await TaskManager.unregisterTaskAsync('steps-notification-task');
@@ -541,41 +583,27 @@ const SettingsScreen = ({ navigation, onThemeChange, appLanguage }) => {
   };
 
 const handleSaveLanguage = async () => {
-    // لو مفيش تغيير في اللغة، ارجع للشاشة الرئيسية وخلاص
     if (activeLanguage === selectedLanguage) { 
         setCurrentView('main'); 
         return; 
     }
 
     try {
-      // 1. الخطوة الأهم: افصل Google Fit الأول لو كان متصل
       if (isGoogleFitConnected && GoogleFit) {
           try {
-              // بنحاول نفصل ونستنى الرد
               await GoogleFit.disconnect();
               console.log("Google Fit disconnected successfully before language change.");
           } catch (err) {
               console.log("Disconnect error (ignored):", err);
           }
-          
-          // نحدث الحالة والذاكرة عشان لما التطبيق يفتح تاني ميعتبرش نفسه متصل غلط
           setIsGoogleFitConnected(false);
           await AsyncStorage.setItem('isGoogleFitConnected', 'false');
       }
-
-      // 2. احفظ اللغة الجديدة في الذاكرة
       await AsyncStorage.setItem('appLanguage', selectedLanguage);
       const isAr = selectedLanguage === 'ar';
-
-      // 3. غير اتجاه التطبيق (RTL/LTR)
-      // الترتيب هنا مهم: بنغير الإعدادات بعد ما ضمنا ان جوجل فيت فصل
       I18nManager.allowRTL(true);
       I18nManager.forceRTL(isAr);
-      
-      // تحديث الـ State (شكلياً لحد ما يعمل ريستارت)
       setActiveLanguage(selectedLanguage);
-
-      // 4. اظهر رسالة التنبيه واعمل ريستارت
       Alert.alert(
         t('languageSaved', selectedLanguage), 
         t('languageSettingsUpdated', selectedLanguage), 
@@ -583,13 +611,11 @@ const handleSaveLanguage = async () => {
             { 
                 text: 'OK', 
                 onPress: async () => { 
-                    // تأخير بسيط جداً للتأكد من حفظ الـ AsyncStorage
                     setTimeout(async () => {
                         try {
                             await Updates.reloadAsync();
                         } catch(e) {
                            console.log("Reload error", e);
-                           // لو الريلود فشل، نطلب من المستخدم يقفل ويفتح
                            Alert.alert("Note", "Please close and reopen the app manually.");
                         }
                     }, 500);
@@ -646,9 +672,25 @@ const handleSaveLanguage = async () => {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.surface }]}>
       <StatusBar barStyle={theme.statusBar} backgroundColor={theme.surface} />
       <ScreenHeader title={getHeaderTitle()} onBackPress={handleBackPress} theme={theme} action={headerAction} isRTL={isRTL} />
-      <ScrollView style={{backgroundColor: theme.background}} contentContainerStyle={[ styles.scrollContent, { paddingTop: currentView === 'main' ? 20 : 0 } ]}>
-        {renderContent()}
-      </ScrollView>
+      
+      {/* Container to handle ScrollView and Ad */}
+      <View style={{ flex: 1 }}>
+          <ScrollView style={{backgroundColor: theme.background}} contentContainerStyle={[ styles.scrollContent, { paddingTop: currentView === 'main' ? 20 : 0 } ]}>
+            {renderContent()}
+          </ScrollView>
+      </View>
+
+      {/* 👇 3. البانر الاعلاني في الأسفل */}
+      <View style={[styles.bannerContainer, {backgroundColor: theme.surface, borderTopColor: theme.separator}]}>
+        <BannerAd
+            unitId={adUnitId}
+            size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+            requestOptions={{
+                requestNonPersonalizedAdsOnly: true,
+            }}
+        />
+      </View>
+
       {isTimePickerVisible && Platform.OS !== 'web' && (Platform.OS === 'ios' ? (
           <Modal transparent={true} animationType="slide" visible={isTimePickerVisible} onRequestClose={() => setTimePickerVisible(false)}>
               <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setTimePickerVisible(false)} />
@@ -689,6 +731,8 @@ const styles = StyleSheet.create({
   connectedContainer: { alignItems: 'flex-end', },
   connectedText: { fontSize: 14, fontWeight: 'bold', },
   disconnectText: { fontSize: 12, marginTop: 2, },
+  // 👇 4. ستايل الحاوية الخاصة بالبانر
+  bannerContainer: { width: '100%', alignItems: 'center', justifyContent: 'center', borderTopWidth: 1 },
 });
 
 export default SettingsScreen;

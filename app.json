@@ -11,12 +11,16 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.youssef.caloraai",
+      "config": {
+        "googleMobileAdsAppId": "ca-app-pub-8833281523608204~9203025069"
+      },
       "infoPlist": {
         "NSCameraUsageDescription": "This app needs access to your camera to scan meals and barcodes.",
         "NSMicrophoneUsageDescription": "This app needs access to your microphone for camera features.",
         "NSMotionUsageDescription": "This app needs access to your motion activity to track steps.",
         "NSHealthShareUsageDescription": "This app needs access to health data to track your fitness progress.",
         "NSHealthUpdateUsageDescription": "This app needs access to update your health data.",
+        "NSUserTrackingUsageDescription": "This identifier will be used to deliver personalized ads to you.",
         "SKAdNetworkItems": [
           {
             "SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork"
@@ -32,6 +36,9 @@
       "supportsRtl": true,
       "edgeToEdgeEnabled": true,
       "package": "com.caloraai.app",
+      "config": {
+        "googleMobileAdsAppId": "ca-app-pub-8833281523608204~9203025069"
+      },
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",

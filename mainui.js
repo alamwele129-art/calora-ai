@@ -22,8 +22,53 @@ import * as Notifications from 'expo-notifications';
 import * as TaskManager from 'expo-task-manager';
 import * as BackgroundFetch from 'expo-background-fetch';
 import GoogleFit, { Scopes } from 'react-native-google-fit'; 
-// --- إضافة مكتبة إعلانات جوجل ---
-import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
+
+// ---------------------------------------------------------------------------
+// --- حل مشكلة الإعلانات (Smart AdMob Handler) ---
+// الكود ده بيشوف لو المكتبة موجودة بيشغلها، ولو مش موجودة (Expo Go) بيحط مكانها وهمي عشان التطبيق يفتح
+// ---------------------------------------------------------------------------
+let BannerAd, BannerAdSize, TestIds;
+const productionAdUnitID = 'ca-app-pub-8833281523608204/7371068641'; // معرف إعلاناتك الحقيقي
+
+try {
+    // محاولة استدعاء المكتبة الحقيقية (هتشتغل في الـ APK)
+    const adMob = require('react-native-google-mobile-ads');
+    BannerAd = adMob.BannerAd;
+    BannerAdSize = adMob.BannerAdSize;
+    TestIds = adMob.TestIds;
+} catch (error) {
+    // لو فشل (أنت في Expo Go)، نستخدم بدائل وهمية عشان الكود ما يضربش
+    console.log("AdMob not found (Running in Expo Go). Using mock components.");
+    
+    TestIds = { BANNER: 'TEST_ID_FOR_DEV' };
+    
+    BannerAdSize = { 
+        BANNER: 'BANNER', 
+        MEDIUM_RECTANGLE: 'MEDIUM_RECTANGLE', 
+        FULL_BANNER: 'FULL_BANNER' 
+    };
+
+    // مكون وهمي يظهر مكان الإعلان في وضع التطوير
+    BannerAd = ({ size, unitId }) => (
+        <View style={{
+            height: size === 'MEDIUM_RECTANGLE' ? 250 : 50,
+            width: '100%',
+            backgroundColor: '#eee',
+            justifyContent: 'center',
+            alignItems: 'center',
+            borderWidth: 1,
+            borderColor: '#ccc',
+            borderStyle: 'dashed',
+            marginVertical: 10
+        }}>
+            <Text style={{color: '#888', fontSize: 12, textAlign: 'center'}}>
+                AdMob Banner Placeholder{'\n'}
+                (Visible in APK Build Only)
+            </Text>
+        </View>
+    );
+}
+// ---------------------------------------------------------------------------
 
 import ProfileScreen from './profile';
 import CameraScreen from './camera';
@@ -38,12 +83,12 @@ import EditProfileScreen from './editprofile';
 import SettingsScreen from './setting'; 
 import AboutScreen from './about';
 
-const STEPS_NOTIFICATION_TASK = 'steps-notification-task';
+// --- إعداد المعرفات ---
+// الكود ده شغال: لو تطوير هياخد التست، لو برودكشن هياخد المعرف بتاعك
+const BOTTOM_BANNER_ID = __DEV__ ? TestIds.BANNER : productionAdUnitID;
+const INLINE_AD_ID = __DEV__ ? TestIds.BANNER : productionAdUnitID;
 
-// --- معرف الوحدة الإعلانية (Banner ID) ---
-// في وضع التطوير (__DEV__) نستخدم معرف الاختبار الخاص بجوجل لتجنب الحظر
-// عند النشر، ضع المعرف الحقيقي مكان الرموز xxxxx
-const adUnitId = __DEV__ ? TestIds.BANNER : 'ca-app-pub-8833281523608204/7371068641';
+const STEPS_NOTIFICATION_TASK = 'steps-notification-task';
 
 const getFlexDirection = (language) => {
     const isAppRTL = language === 'ar';
@@ -263,22 +308,6 @@ const SummaryCard = ({ data, dailyGoal, theme, t, language }) => {
     ); 
 };
 
-// --- Google AdMob Banner Component ---
-const AdBannerPlaceholder = ({ theme }) => {
-    return (
-        <View style={[styles.card(theme), { alignItems: 'center', justifyContent: 'center', padding: 10, minHeight: 60 }]}>
-             <BannerAd
-                unitId={adUnitId}
-                size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
-                requestOptions={{
-                    requestNonPersonalizedAdsOnly: true,
-                }}
-            />
-        </View>
-    );
-};
-// ------------------------------------
-
 const NutrientRow = ({ label, consumed, goal, color, unit = 'جم', isLimit = false, theme, language }) => { 
     const isOverLimit = isLimit && consumed > goal; 
     const progressColor = isOverLimit ? theme.overLimit : color;
@@ -456,7 +485,6 @@ const SmallWorkoutCard = ({ totalCaloriesBurned = 0, onPress, theme, t, language
 
 // --- START: كارت الخطوات (تم التحديث - بدون InteractionManager) ---
 const SmallStepsCard = ({ navigation, theme, t, language }) => { 
-    // بدأنا الحالة بـ disconnected عشان يظهر "غير متصل" علطول لحد ما يتأكد
     const [status, setStatus] = useState('disconnected'); 
     const [currentStepCount, setCurrentStepCount] = useState(0);
     const [stepsGoal, setStepsGoal] = useState(10000);
@@ -466,36 +494,29 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
 
         const syncData = async () => {
             try {
-                // 1. جلب الهدف
                 const savedGoal = await AsyncStorage.getItem('stepsGoal');
                 if (isActive && savedGoal) setStepsGoal(parseInt(savedGoal, 10));
 
-                // 2. التحقق السريع من الاتصال
                 const storedConnectionStatus = await AsyncStorage.getItem('isGoogleFitConnected');
                 let isAuthorized = false;
 
                 if (GoogleFit) {
                     try { 
-                        // فحص سريع بدون انتظار طويل
                         isAuthorized = GoogleFit.isAuthorized; 
                         if (!isAuthorized) {
-                             // محاولة تحديث الحالة لو هو مش عارف
                              await GoogleFit.checkIsAuthorized();
                              isAuthorized = GoogleFit.isAuthorized;
                         }
                     } catch (e) {}
                 }
 
-                // لو مش متصل في الذاكرة ولا واخد صلاحية، خليك disconnected
                 if (storedConnectionStatus !== 'true' && !isAuthorized) {
                     if (isActive) setStatus('disconnected');
                     return; 
                 }
 
-                // لو وصلنا هنا يبقى متصل، نعرض الدائرة
                 if (isActive) setStatus('connected');
 
-                // 3. جلب الخطوات في الخلفية
                 if (isAuthorized) {
                     const now = new Date();
                     const startOfDay = new Date();
@@ -511,14 +532,12 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
                     const res = await GoogleFit.getDailyStepCountSamples(opt);
                     
                     if (isActive && res && res.length > 0) {
-                        // نحاول نجيب المصدر الرسمي المدمج
                         const mergedSource = res.find(s => s.source === 'com.google.android.gms:estimated_steps');
                         let stepsVal = 0;
                         
                         if (mergedSource && mergedSource.steps.length > 0) {
                             stepsVal = mergedSource.steps[0].value;
                         } else {
-                            // لو مفيش، ناخد أكبر قيمة متاحة
                             res.forEach(source => {
                                 if (source.steps) {
                                     source.steps.forEach(step => {
@@ -537,7 +556,6 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
         };
 
         syncData();
-        // تحديث هادي كل 5 ثواني
         const intervalId = setInterval(syncData, 5000); 
 
         return () => { 
@@ -549,7 +567,6 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
     const progress = stepsGoal > 0 ? Math.min(currentStepCount / stepsGoal, 1) : 0;
 
     const renderContent = () => {
-        // لو متصل اعرض الدائرة والخطوات
         if (status === 'connected') {
             return (
                 <View style={styles.stepsCardContent}>
@@ -577,7 +594,6 @@ const SmallStepsCard = ({ navigation, theme, t, language }) => {
             );
         }
 
-        // في أي حالة تانية (لسه بيحمل أو مش متصل) اعرض "غير متصل" علطول من غير تحميل
         return (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
                 <MaterialCommunityIcons name="google-fit" size={32} color={theme.disabled} style={{ marginBottom: 5 }} />
@@ -685,33 +701,53 @@ function DiaryScreen({ navigation, route, setHasProgress, theme, t, language }) 
     return ( 
         <SafeAreaView style={styles.rootContainer(theme)}>
             <StatusBar barStyle={theme.statusBar} backgroundColor={theme.background} />
-            <AddFoodModal visible={isFoodModalVisible} onClose={() => setFoodModalVisible(false)} onFoodSelect={handleFoodSelectedFromModal} mealKey={currentMealKey} theme={theme} t={t} />
-            <ScrollView contentContainerStyle={styles.container}>
-                <DateNavigator selectedDate={selectedDate} onDateSelect={setSelectedDate} referenceToday={referenceToday} theme={theme} t={t} language={language} />
-                {!isToday && (
-                    <View style={[styles.readOnlyBanner(theme), { flexDirection: flexDirection }]}>
-                        <Ionicons name="information-circle-outline" size={20} color={theme.white} style={language === 'ar' ? { marginLeft: 8 } : { marginRight: 8 }} />
-                        <Text style={[styles.readOnlyBannerText(theme), { textAlign: textAlign }]}>{t('readOnlyBanner')}</Text>
+            <View style={{flex: 1}}>
+                <AddFoodModal visible={isFoodModalVisible} onClose={() => setFoodModalVisible(false)} onFoodSelect={handleFoodSelectedFromModal} mealKey={currentMealKey} theme={theme} t={t} />
+                <ScrollView contentContainerStyle={styles.container}>
+                    <DateNavigator selectedDate={selectedDate} onDateSelect={setSelectedDate} referenceToday={referenceToday} theme={theme} t={t} language={language} />
+                    {!isToday && (
+                        <View style={[styles.readOnlyBanner(theme), { flexDirection: flexDirection }]}>
+                            <Ionicons name="information-circle-outline" size={20} color={theme.white} style={language === 'ar' ? { marginLeft: 8 } : { marginRight: 8 }} />
+                            <Text style={[styles.readOnlyBannerText(theme), { textAlign: textAlign }]}>{t('readOnlyBanner')}</Text>
+                        </View>
+                    )}
+                    <SummaryCard data={{ food: calculatedTotals.food, exercise: totalExerciseCalories }} dailyGoal={dailyGoal} theme={theme} t={t} language={language} />
+                    <NutrientSummaryCard data={{ protein: { consumed: calculatedTotals.protein, goal: macroGoals.protein }, carbs: { consumed: calculatedTotals.carbs, goal: macroGoals.carbs }, fat: { consumed: calculatedTotals.fat, goal: macroGoals.fat }, fiber: { consumed: calculatedTotals.fiber, goal: NUTRIENT_GOALS.fiber }, sugar: { consumed: calculatedTotals.sugar, goal: NUTRIENT_GOALS.sugar }, sodium: { consumed: calculatedTotals.sodium, goal: NUTRIENT_GOALS.sodium }, }} theme={theme} t={t} language={language} />
+                    <DashboardGrid weight={dailyData.displayWeight || 0} water={dailyData.water || 0} waterGoal={waterGoal} totalExerciseCalories={totalExerciseCalories} onWeightPress={() => navigation.navigate('Weight')} onWaterPress={() => navigation.navigate('Water', { dateKey: formatDateKey(selectedDate) })} onWorkoutPress={() => navigation.navigate('WorkoutLog', { dateKey: formatDateKey(selectedDate) })} navigation={navigation} theme={theme} t={t} language={language} />
+                    <DailyFoodLog items={allFoodItems} onPress={() => navigation.navigate('FoodLogDetail', { items: allFoodItems, dateString: selectedDate.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) })} theme={theme} t={t} language={language} />
+                    <View style={[styles.sectionHeaderContainer, { alignItems: language === 'ar' ? 'flex-end' : 'flex-start' }]}>
+                        <Text style={[styles.sectionTitle(theme), { textAlign: textAlign }]}>{t('mealSectionsTitle')}</Text>
+                        <Text style={[styles.sectionDescription(theme), { textAlign: textAlign }]}>{t('mealSectionsDesc')}</Text>
                     </View>
-                )}
-                <SummaryCard data={{ food: calculatedTotals.food, exercise: totalExerciseCalories }} dailyGoal={dailyGoal} theme={theme} t={t} language={language} />
-                
-                {/* --- مكان الإعلان --- */}
-                <AdBannerPlaceholder theme={theme} />
-                {/* ------------------ */}
+                    <MealLoggingSection title={t('breakfast')} iconName="sunny-outline" items={dailyData.breakfast || []} onAddPress={handleOpenModal} mealKey="breakfast" isEditable={isToday} theme={theme} t={t} language={language} />
+                    <MealLoggingSection title={t('lunch')} iconName="partly-sunny-outline" items={dailyData.lunch || []} onAddPress={handleOpenModal} mealKey="lunch" isEditable={isToday} theme={theme} t={t} language={language} />
+                    
+                    {/* --- 3. إعلان مدمج (Native Style) بين الغداء والعشاء --- */}
+                    <View style={{ alignItems: 'center', marginVertical: 12 }}>
+                        <BannerAd
+                            unitId={INLINE_AD_ID}
+                            size={BannerAdSize.MEDIUM_RECTANGLE}
+                            requestOptions={{
+                                requestNonPersonalizedAdsOnly: true,
+                            }}
+                        />
+                    </View>
+                    
+                    <MealLoggingSection title={t('dinner')} iconName="moon-outline" items={dailyData.dinner || []} onAddPress={handleOpenModal} mealKey="dinner" isEditable={isToday} theme={theme} t={t} language={language} />
+                    <MealLoggingSection title={t('snacks')} iconName="nutrition-outline" items={dailyData.snacks || []} onAddPress={handleOpenModal} mealKey="snacks" isEditable={isToday} theme={theme} t={t} language={language} />
+                </ScrollView>
 
-                <NutrientSummaryCard data={{ protein: { consumed: calculatedTotals.protein, goal: macroGoals.protein }, carbs: { consumed: calculatedTotals.carbs, goal: macroGoals.carbs }, fat: { consumed: calculatedTotals.fat, goal: macroGoals.fat }, fiber: { consumed: calculatedTotals.fiber, goal: NUTRIENT_GOALS.fiber }, sugar: { consumed: calculatedTotals.sugar, goal: NUTRIENT_GOALS.sugar }, sodium: { consumed: calculatedTotals.sodium, goal: NUTRIENT_GOALS.sodium }, }} theme={theme} t={t} language={language} />
-                <DashboardGrid weight={dailyData.displayWeight || 0} water={dailyData.water || 0} waterGoal={waterGoal} totalExerciseCalories={totalExerciseCalories} onWeightPress={() => navigation.navigate('Weight')} onWaterPress={() => navigation.navigate('Water', { dateKey: formatDateKey(selectedDate) })} onWorkoutPress={() => navigation.navigate('WorkoutLog', { dateKey: formatDateKey(selectedDate) })} navigation={navigation} theme={theme} t={t} language={language} />
-                <DailyFoodLog items={allFoodItems} onPress={() => navigation.navigate('FoodLogDetail', { items: allFoodItems, dateString: selectedDate.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) })} theme={theme} t={t} language={language} />
-                <View style={[styles.sectionHeaderContainer, { alignItems: language === 'ar' ? 'flex-end' : 'flex-start' }]}>
-                    <Text style={[styles.sectionTitle(theme), { textAlign: textAlign }]}>{t('mealSectionsTitle')}</Text>
-                    <Text style={[styles.sectionDescription(theme), { textAlign: textAlign }]}>{t('mealSectionsDesc')}</Text>
+                {/* --- 4. إعلان مثبت في الأسفل (Sticky Bottom) فوق شريط التنقل --- */}
+                <View style={{ position: 'absolute', bottom: 75, width: '100%', alignItems: 'center' }}>
+                     <BannerAd
+                        unitId={BOTTOM_BANNER_ID}
+                        size={BannerAdSize.BANNER}
+                        requestOptions={{
+                            requestNonPersonalizedAdsOnly: true,
+                        }}
+                    />
                 </View>
-                <MealLoggingSection title={t('breakfast')} iconName="sunny-outline" items={dailyData.breakfast || []} onAddPress={handleOpenModal} mealKey="breakfast" isEditable={isToday} theme={theme} t={t} language={language} />
-                <MealLoggingSection title={t('lunch')} iconName="partly-sunny-outline" items={dailyData.lunch || []} onAddPress={handleOpenModal} mealKey="lunch" isEditable={isToday} theme={theme} t={t} language={language} />
-                <MealLoggingSection title={t('dinner')} iconName="moon-outline" items={dailyData.dinner || []} onAddPress={handleOpenModal} mealKey="dinner" isEditable={isToday} theme={theme} t={t} language={language} />
-                <MealLoggingSection title={t('snacks')} iconName="nutrition-outline" items={dailyData.snacks || []} onAddPress={handleOpenModal} mealKey="snacks" isEditable={isToday} theme={theme} t={t} language={language} />
-            </ScrollView>
+            </View>
         </SafeAreaView> 
     ); 
 }

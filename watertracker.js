@@ -9,6 +9,51 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BarChart } from 'react-native-chart-kit';
 import { supabase } from './supabaseclient';
 
+// ---------------------------------------------------------------------------
+// --- بداية كود الإعلانات (Safe Banner Ad Handler) ---
+// ---------------------------------------------------------------------------
+let BannerAd, BannerAdSize, TestIds;
+const productionAdUnitId = 'ca-app-pub-8833281523608204/7371068641'; // الكود الحقيقي
+
+try {
+    // محاولة استدعاء المكتبة الحقيقية
+    const adMob = require('react-native-google-mobile-ads');
+    BannerAd = adMob.BannerAd;
+    BannerAdSize = adMob.BannerAdSize;
+    TestIds = adMob.TestIds;
+} catch (error) {
+    console.log("AdMob not found (Expo Go). Using Mock Banner.");
+    
+    // تعريفات وهمية لبيئة التطوير Expo Go
+    TestIds = { BANNER: 'test-banner-id' };
+    BannerAdSize = { 
+        ANCHORED_ADAPTIVE_BANNER: 'ANCHORED_ADAPTIVE_BANNER',
+        BANNER: 'BANNER'
+    };
+
+    // مكون وهمي يظهر مكان الإعلان
+    BannerAd = ({ size }) => (
+        <View style={{
+            height: 60,
+            width: '100%',
+            backgroundColor: '#eee',
+            justifyContent: 'center',
+            alignItems: 'center',
+            borderTopWidth: 1,
+            borderColor: '#ccc',
+        }}>
+            <Text style={{color: '#888', fontSize: 12}}>Ads (Visible in APK Build)</Text>
+        </View>
+    );
+}
+
+// تحديد معرف الإعلان: لو في وضع التطوير ومكتبة الإعلانات موجودة -> استخدم TestID
+// لو في الإنتاج (أو الموك) -> استخدم ProductionID (أو الموك هيتجاهله)
+const adUnitId = (__DEV__ && BannerAd.name !== 'BannerAd') ? TestIds.BANNER : productionAdUnitId;
+// ---------------------------------------------------------------------------
+// --- نهاية كود الإعلانات ---
+// ---------------------------------------------------------------------------
+
 const screenWidth = Dimensions.get('window').width;
 const lightTheme = { primary: '#388E3C', background: '#E8F5E9', card: '#FFFFFF', textPrimary: '#212121', textSecondary: '#757575', disabled: '#BDBDBD', water: '#007BFF', inputBorder: '#388E3C', inputBackground: '#FFFFFF', buttonText: '#FFFFFF', statusBar: 'dark-content', chartLine: (opacity = 1) => `rgba(56, 142, 60, ${opacity})`, chartLabel: (opacity = 1) => `rgba(33, 33, 33, ${opacity})`, };
 const darkTheme = { primary: '#66BB6A', background: '#121212', card: '#1E1E1E', textPrimary: '#FFFFFF', textSecondary: '#B0B0B0', disabled: '#424242', water: '#4FC3F7', inputBorder: '#66BB6A', inputBackground: '#2C2C2C', buttonText: '#FFFFFF', statusBar: 'light-content', chartLine: (opacity = 1) => `rgba(102, 187, 106, ${opacity})`, chartLabel: (opacity = 1) => `rgba(224, 224, 224, ${opacity})`, };
@@ -38,14 +83,12 @@ const WaterScreen = () => {
         navigation.setOptions({
             headerTitle: t('headerTitle'),
             headerTitleAlign: 'center',
-            // إذا كانت اللغة إنجليزية (التي ستكون RTL)، نضع السهم على اليمين ونلغي اليسار
             headerLeft: language === 'en' ? () => null : undefined,
             headerRight: language === 'en' ? () => (
                 <TouchableOpacity 
                     onPress={() => navigation.goBack()} 
                     style={{ marginRight: 15, padding: 5 }}
                 >
-                    {/* يمكنك استخدام arrow-forward إذا أردت عكس اتجاه السهم أيضاً، لكن arrow-back قياسي */}
                     <Ionicons name="arrow-back" size={24} color={theme.textPrimary} />
                 </TouchableOpacity>
             ) : undefined,
@@ -63,10 +106,6 @@ const WaterScreen = () => {
                     const currentLang = savedLang || 'en'; 
                     setLanguage(currentLang);
                     
-                    // ============================================================
-                    // التعديل هنا: نجعل RTL صحيحاً إذا كانت اللغة إنجليزية
-                    // مما سيقلب التصميم لليمين عند اختيار الإنجليزية
-                    // ============================================================
                     setIsRTL(currentLang === 'en'); 
                     
                     const settingsJson = await AsyncStorage.getItem('waterSettings');
@@ -149,7 +188,6 @@ const WaterScreen = () => {
                     <Text style={styles.sectionTitle(theme, isRTL)}>{isToday ? t('todaysWater') : t('waterLog')}</Text>
                     <Text style={styles.progressText(theme)}>{currentIntake} / {waterGoal} {t('cupsUnit')} ({currentIntake * cupSize} {t('mlUnit')})</Text>
                     
-                    {/* هنا سيتم عكس اتجاه الصف بناءً على isRTL الذي أصبح true للإنجليزية */}
                     <View style={styles.waterControlContainer(isRTL)}>
                         <TouchableOpacity style={styles.waterButton(theme, !isToday)} onPress={() => updateWaterIntake(-1)} disabled={!isToday}>
                             <Ionicons name="remove" size={32} color={!isToday ? theme.disabled : theme.water} />
@@ -177,6 +215,18 @@ const WaterScreen = () => {
                     ) : ( <Text style={styles.emptyText(theme)}>{t('chartEmpty')}</Text> )}
                 </View>
             </ScrollView>
+
+            {/* 👇👇👇 البانر الاعلاني (الآمن) تم إضافته هنا 👇👇👇 */}
+            <View style={styles.bannerContainer(theme)}>
+                <BannerAd
+                    unitId={adUnitId}
+                    size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+                    requestOptions={{
+                        requestNonPersonalizedAdsOnly: true,
+                    }}
+                />
+            </View>
+
         </SafeAreaView>
     );
 };
@@ -186,12 +236,10 @@ const styles = {
     container: { padding: 20, paddingBottom: 50 },
     card: (theme) => ({ backgroundColor: theme.card, borderRadius: 20, padding: 20, marginBottom: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 3, elevation: 3 }),
     
-    // isRTL هنا يعني الإنجليزية، لذا سيكون right
     sectionTitle: (theme, isRTL) => ({ fontSize: 22, fontWeight: 'bold', color: theme.textPrimary, textAlign: isRTL ? 'right' : 'left', marginBottom: 15 }),
     
     progressText: (theme) => ({ fontSize: 18, color: theme.textSecondary, textAlign: 'center', marginBottom: 20, fontWeight: '600' }),
     
-    // row-reverse سيجعل العناصر تبدأ من اليمين
     waterControlContainer: (isRTL) => ({ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', alignItems: 'center' }),
     
     waterVisualizer: (isRTL) => ({ flexDirection: isRTL ? 'row-reverse' : 'row', flexWrap: 'wrap', justifyContent: 'center', flex: 1, marginHorizontal: 10 }),
@@ -207,6 +255,9 @@ const styles = {
     emptyText: (theme) => ({ textAlign: 'center', color: theme.textSecondary, marginTop: 20, fontSize: 16, lineHeight: 24, paddingHorizontal: 10 }),
     readOnlyBanner: (theme) => ({ backgroundColor: `${theme.primary}20`, paddingVertical: 10, paddingHorizontal: 15, borderRadius: 10, marginBottom: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }),
     readOnlyText: (theme) => ({ color: theme.primary, fontWeight: 'bold', fontSize: 14 }),
+    
+    // ستايل البانر الاعلاني تم إضافته هنا
+    bannerContainer: (theme) => ({ width: '100%', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.card, borderTopWidth: 1, borderTopColor: theme.inputBorder }), // استخدمت inputBorder لانه متاح في الثيم
 };
 
 export default WaterScreen;

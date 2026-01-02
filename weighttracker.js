@@ -1,4 +1,3 @@
-// weighttracker.js
 import React, { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import {
     View, Text, StyleSheet, SafeAreaView, TouchableOpacity, FlatList,
@@ -10,12 +9,85 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LineChart } from 'react-native-chart-kit';
 import { supabase } from './supabaseclient'; 
 
+// ---------------------------------------------------------------------------
+// --- حل مشكلة الإعلان البيني (Safe Interstitial Ad Handler) ---
+// ---------------------------------------------------------------------------
+let InterstitialAd = null;
+let AdEventType = null;
+let TestIds = null;
+let isAdMobLoaded = false;
+
+const productionAdUnitId = 'ca-app-pub-8833281523608204/5252812391'; // الكود الحقيقي
+
+try {
+    // محاولة استدعاء المكتبة الحقيقية
+    const adMob = require('react-native-google-mobile-ads');
+    InterstitialAd = adMob.InterstitialAd;
+    AdEventType = adMob.AdEventType;
+    TestIds = adMob.TestIds;
+    isAdMobLoaded = true;
+} catch (error) {
+    console.log("AdMob Interstitial not found (Expo Go). Using Mock.");
+    
+    // تعريفات وهمية لبيئة التطوير Expo Go
+    TestIds = { INTERSTITIAL: 'mock-interstitial-id' };
+    AdEventType = {
+        LOADED: 'loaded',
+        CLOSED: 'closed',
+        ERROR: 'error'
+    };
+
+    // كلاس وهمي بيحاكي الإعلان البيني
+    InterstitialAd = {
+        createForAdRequest: (id, options) => {
+            return {
+                listeners: {},
+                addAdEventListener: function(event, callback) {
+                    this.listeners[event] = callback;
+                    return () => { delete this.listeners[event]; };
+                },
+                load: function() {
+                    console.log("Mock Interstitial Loading...");
+                    setTimeout(() => {
+                        console.log("Mock Interstitial Loaded");
+                        if (this.listeners['loaded']) this.listeners['loaded']();
+                    }, 1000);
+                },
+                show: function() {
+                    Alert.alert(
+                        "Ad Simulation (Expo Go)",
+                        "هذا إعلان بيني (Interstitial). في التطبيق الحقيقي سيغطي الشاشة بالكامل.",
+                        [
+                            {
+                                text: "Close Ad",
+                                onPress: () => {
+                                    if (this.listeners['closed']) this.listeners['closed']();
+                                }
+                            }
+                        ]
+                    );
+                }
+            };
+        }
+    };
+}
+
+// تحديد معرف الإعلان
+const adUnitId = (__DEV__ && isAdMobLoaded) ? TestIds.INTERSTITIAL : productionAdUnitId;
+// ---------------------------------------------------------------------------
+
+
 const screenWidth = Dimensions.get('window').width;
 const HISTORY_KEY_LOCAL = 'weightHistory'; 
 
 const lightTheme = { primary: '#388E3C', background: '#E8F5E9', card: '#FFFFFF', textPrimary: '#212121', textSecondary: '#757575', inputBackground: '#F5F5F5', overlay: 'rgba(0,0,0,0.5)', statusBar: 'dark-content', chartLine: (opacity = 1) => `rgba(56, 142, 60, ${opacity})`, chartLabel: (opacity = 1) => `rgba(33, 33, 33, ${opacity})`, tooltipBg: '#212121', tooltipText: '#FFFFFF', white: '#FFFFFF', red: '#F44336' };
 const darkTheme = { primary: '#66BB6A', background: '#121212', card: '#1E1E1E', textPrimary: '#FFFFFF', textSecondary: '#B0B0B0', inputBackground: '#2C2C2C', overlay: 'rgba(0,0,0,0.7)', statusBar: 'light-content', chartLine: (opacity = 1) => `rgba(102, 187, 106, ${opacity})`, chartLabel: (opacity = 1) => `rgba(224, 224, 224, ${opacity})`, tooltipBg: '#E0E0E0', tooltipText: '#121212', white: '#FFFFFF', red: '#EF9A9A' };
 const translations = { ar: { weightTracker: 'متابع الوزن', weightProgress: 'تطور الوزن', chartEmpty: 'أضف وزنين على الأقل لرؤية الرسم البياني.', statistics: 'إحصائيات', startWeight: 'وزن البداية', currentWeight: 'الوزن الحالي', totalChange: 'التغير الكلي', history: 'السجل التاريخي', historyEmpty: 'لم تقم بتسجيل وزنك بعد.', addWeightTitle: 'إضافة وزن جديد', weightInputPlaceholder: 'أدخل وزنك بالكيلوجرام', cancel: 'إلغاء', save: 'حفظ', errorTitle: 'خطأ', invalidWeight: 'الرجاء إدخال وزن صحيح.', kgUnit: ' كجم' }, en: { weightTracker: 'Weight Tracker', weightProgress: 'Weight Progress', chartEmpty: 'Add at least two weights to see the chart.', statistics: 'Statistics', startWeight: 'Start Weight', currentWeight: 'Current Weight', totalChange: 'Total Change', history: 'History Log', historyEmpty: 'You have not logged your weight yet.', addWeightTitle: 'Add New Weight', weightInputPlaceholder: 'Enter your weight in kg', cancel: 'Cancel', save: 'Save', errorTitle: 'Error', invalidWeight: 'Please enter a valid weight.', kgUnit: ' kg' } };
+
+// إنشاء كائن الإعلان خارج المكون لضمان عدم تكراره (باستخدام الكلاس الآمن)
+const interstitial = InterstitialAd.createForAdRequest(adUnitId, {
+    requestNonPersonalizedAdsOnly: true,
+});
 
 const WeightChartComponent = ({ data, theme, selectedPoint, onPointClick, t }) => {
     const chartConfig = { backgroundColor: theme.card, backgroundGradientFrom: theme.card, backgroundGradientTo: theme.card, decimalPlaces: 1, color: theme.chartLine, labelColor: theme.chartLabel, propsForDots: { r: "5", strokeWidth: "2", stroke: theme.background } };
@@ -41,29 +113,42 @@ const WeightScreen = ({ navigation }) => {
     const [isProcessingClick, setIsProcessingClick] = useState(false);
     const [chartKey, setChartKey] = useState(0);
     const weightInputRef = useRef(null);
+    
+    // حالة لتتبع ما إذا كان الإعلان جاهزاً
+    const [adLoaded, setAdLoaded] = useState(false);
 
-    // 🔥🔥🔥 التعديل هنا: رجعت العنوان وظبطت السهم 🔥🔥🔥
+    // 👇 إعداد الإعلان عند فتح الصفحة
+    useEffect(() => {
+        const unsubscribeLoaded = interstitial.addAdEventListener(AdEventType.LOADED, () => {
+            setAdLoaded(true);
+        });
+
+        const unsubscribeClosed = interstitial.addAdEventListener(AdEventType.CLOSED, () => {
+            setAdLoaded(false);
+            interstitial.load(); // إعادة تحميل إعلان جديد للمرة القادمة
+        });
+
+        // بدء التحميل
+        interstitial.load();
+
+        return () => {
+            // التحقق من وجود الدوال قبل استدعائها (لأن الموك ممكن يكون بسيط)
+            if(unsubscribeLoaded) unsubscribeLoaded();
+            if(unsubscribeClosed) unsubscribeClosed();
+        };
+    }, []);
+
     useLayoutEffect(() => {
         const renderArrowButton = () => (
             <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginHorizontal: 15 }}>
-                <Ionicons 
-                    // لو إنجليزي (RTL) -> سهم يمين، لو عربي -> سهم شمال
-                    name={isRTL ? "arrow-back" : "arrow-forward"} 
-                    size={24} 
-                    color={theme.textPrimary} 
-                />
+                <Ionicons name={isRTL ? "arrow-back" : "arrow-forward"} size={24} color={theme.textPrimary} />
             </TouchableOpacity>
         );
 
         navigation.setOptions({
-            // العنوان زي الصورة "Weight Tracker"
             headerTitle: language === 'ar' ? 'متابع الوزن' : 'Weight Tracker',
-            headerTitleAlign: 'center', // دي عشان تضمن إن العنوان يفضل في النص مهما مكان السهم اتغير
-            
-            // لو إنجليزي (isRTL) حط السهم يمين، غير كده undefined
+            headerTitleAlign: 'center',
             headerRight: isRTL ? renderArrowButton : undefined,
-            
-            // لو إنجليزي (isRTL) اخفي الشمال، لو عربي حط السهم شمال
             headerLeft: isRTL ? () => null : renderArrowButton,
         });
     }, [navigation, isRTL, theme, language]);
@@ -77,7 +162,6 @@ const WeightScreen = ({ navigation }) => {
 
     const t = (key) => translations[language]?.[key] || translations['en'][key];
     
-    // ... باقي الكود زي ما هو بالظبط ...
     const loadHistory = useCallback(async () => {
         try {
             const { data: { user } } = await supabase.auth.getUser();
@@ -170,6 +254,14 @@ const WeightScreen = ({ navigation }) => {
 
             setNewWeight('');
             setModalVisible(false);
+
+            // 👇👇👇 عرض الإعلان البيني هنا بعد الحفظ مباشرة 👇👇👇
+            if (adLoaded) {
+                interstitial.show();
+            } else {
+                console.log("Ad not loaded yet");
+            }
+
         } catch (e) {
             console.error('Failed to save weight.', e);
             loadHistory(); 
@@ -185,54 +277,56 @@ const WeightScreen = ({ navigation }) => {
     return (
         <SafeAreaView style={styles.rootContainer(theme)}>
             <StatusBar barStyle={theme.statusBar} backgroundColor={theme.background} />
-            <FlatList
-                data={[...history].reverse()}
-                keyExtractor={(item) => item.date}
-                contentContainerStyle={styles.container}
-                ListHeaderComponent={() => (
-                    <>
-                        <View style={styles.card(theme)}>
-                            <Text style={styles.sectionTitle(theme, isRTL)}>{t('weightProgress')}</Text>
-                            {isChartLoading ? (<View style={styles.chartLoaderContainer}><ActivityIndicator size="large" color={theme.primary} /></View>) : history.length > 1 ? (<WeightChartComponent key={chartKey} data={displayChartData} theme={theme} selectedPoint={selectedPoint} onPointClick={handlePointClick} t={t} />) : (<View style={styles.chartLoaderContainer}><Text style={styles.emptyText(theme)}>{t('chartEmpty')}</Text></View>)}
-                        </View>
-                        
-                        <View style={styles.card(theme)}>
-                            <Text style={styles.sectionTitle(theme, isRTL)}>{t('statistics')}</Text>
-                            <View style={styles.statsContainer(isRTL)}>
-                                <View style={styles.statItem}>
-                                    <Text style={styles.statValue(theme)}>{startWeight}{t('kgUnit')}</Text>
-                                    <Text style={styles.statLabel(theme)}>{t('startWeight')}</Text>
-                                </View>
-                                <View style={styles.statItem}>
-                                    <Text style={styles.statValue(theme)}>{currentWeight}{t('kgUnit')}</Text>
-                                    <Text style={styles.statLabel(theme)}>{t('currentWeight')}</Text>
-                                </View>
-                                <View style={styles.statItem}>
-                                    <Text style={[styles.statValue(theme), {color: weightChange > 0 ? theme.red : theme.primary}]}>{weightChange.toFixed(1)}{t('kgUnit')}</Text>
-                                    <Text style={styles.statLabel(theme)}>{t('totalChange')}</Text>
+            <View style={styles.contentContainer}>
+                <FlatList
+                    data={[...history].reverse()}
+                    keyExtractor={(item) => item.date}
+                    contentContainerStyle={styles.listContainer}
+                    ListHeaderComponent={() => (
+                        <>
+                            <View style={styles.card(theme)}>
+                                <Text style={styles.sectionTitle(theme, isRTL)}>{t('weightProgress')}</Text>
+                                {isChartLoading ? (<View style={styles.chartLoaderContainer}><ActivityIndicator size="large" color={theme.primary} /></View>) : history.length > 1 ? (<WeightChartComponent key={chartKey} data={displayChartData} theme={theme} selectedPoint={selectedPoint} onPointClick={handlePointClick} t={t} />) : (<View style={styles.chartLoaderContainer}><Text style={styles.emptyText(theme)}>{t('chartEmpty')}</Text></View>)}
+                            </View>
+                            
+                            <View style={styles.card(theme)}>
+                                <Text style={styles.sectionTitle(theme, isRTL)}>{t('statistics')}</Text>
+                                <View style={styles.statsContainer(isRTL)}>
+                                    <View style={styles.statItem}>
+                                        <Text style={styles.statValue(theme)}>{startWeight}{t('kgUnit')}</Text>
+                                        <Text style={styles.statLabel(theme)}>{t('startWeight')}</Text>
+                                    </View>
+                                    <View style={styles.statItem}>
+                                        <Text style={styles.statValue(theme)}>{currentWeight}{t('kgUnit')}</Text>
+                                        <Text style={styles.statLabel(theme)}>{t('currentWeight')}</Text>
+                                    </View>
+                                    <View style={styles.statItem}>
+                                        <Text style={[styles.statValue(theme), {color: weightChange > 0 ? theme.red : theme.primary}]}>{weightChange.toFixed(1)}{t('kgUnit')}</Text>
+                                        <Text style={styles.statLabel(theme)}>{t('totalChange')}</Text>
+                                    </View>
                                 </View>
                             </View>
+                            
+                            <View style={styles.historyHeaderCard(theme)}>
+                                <Text style={styles.sectionTitle(theme, isRTL)}>{t('history')}</Text>
+                            </View>
+                        </>
+                    )}
+                    renderItem={({ item }) => (
+                        <View style={styles.historyItemContainer(theme)}>
+                            <View style={styles.historyItem(theme, isRTL)}>
+                                <Text style={styles.historyWeight(theme)}>{item.weight}{t('kgUnit')}</Text>
+                                <Text style={styles.historyDate(theme)}>{new Date(item.date).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</Text>
+                            </View>
                         </View>
-                        
-                        <View style={styles.historyHeaderCard(theme)}>
-                            <Text style={styles.sectionTitle(theme, isRTL)}>{t('history')}</Text>
-                        </View>
-                    </>
-                )}
-                renderItem={({ item }) => (
-                    <View style={styles.historyItemContainer(theme)}>
-                        <View style={styles.historyItem(theme, isRTL)}>
-                            <Text style={styles.historyWeight(theme)}>{item.weight}{t('kgUnit')}</Text>
-                            <Text style={styles.historyDate(theme)}>{new Date(item.date).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</Text>
-                        </View>
-                    </View>
-                )}
-                ListEmptyComponent={<View style={styles.emptyHistoryContainer(theme)}><Text style={styles.emptyText(theme)}>{t('historyEmpty')}</Text></View>}
-            />
-            
-            <TouchableOpacity style={styles.fab(theme, isRTL)} onPress={() => setModalVisible(true)}>
-                <Ionicons name="add" size={30} color={theme.white} />
-            </TouchableOpacity>
+                    )}
+                    ListEmptyComponent={<View style={styles.emptyHistoryContainer(theme)}><Text style={styles.emptyText(theme)}>{t('historyEmpty')}</Text></View>}
+                />
+                
+                <TouchableOpacity style={styles.fab(theme, isRTL)} onPress={() => setModalVisible(true)}>
+                    <Ionicons name="add" size={30} color={theme.white} />
+                </TouchableOpacity>
+            </View>
             
             <Modal visible={isModalVisible} transparent={true} animationType="fade" onRequestClose={() => setModalVisible(false)}>
                 <View style={styles.modalOverlay(theme)}>
@@ -264,7 +358,8 @@ const WeightScreen = ({ navigation }) => {
 
 const styles = {
     rootContainer: (theme) => ({ flex: 1, backgroundColor: theme.background }),
-    container: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 120 },
+    contentContainer: { flex: 1 },
+    listContainer: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 100 },
     card: (theme) => ({ backgroundColor: theme.card, borderRadius: 20, padding: 20, marginBottom: 20, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5 }),
     historyHeaderCard: (theme) => ({ backgroundColor: theme.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 5, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5, }),
     historyItemContainer: (theme) => ({ backgroundColor: theme.card, paddingHorizontal: 20, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5 }),
